@@ -1,5 +1,5 @@
 /**
- * API client for the LLM Council backend.
+ * API client for the VMM Rada backend.
  *
  * Adapter pattern: this module is the sole point of contact between the React
  * frontend and the Go backend.  All network requests (`fetch` calls) and SSE
@@ -13,15 +13,16 @@
  * in response to those events; this module remains stateless.
  */
 
+// In development the Vite dev server proxies /api → backend (see vite.config.js).
+// VITE_API_BASE is only needed for production builds served from a different
+// origin than the API (e.g. a CDN). Leave it unset for local development.
 const API_BASE = (() => {
   const raw = import.meta.env.VITE_API_BASE;
-  if (typeof raw !== 'string') {
-    return 'http://localhost:8001';
+  if (!raw || typeof raw !== 'string') {
+    return ''; // relative URLs — Vite proxy in dev, same-origin in prod
   }
-  // Trim whitespace and strip trailing slashes so `${API_BASE}/api/...`
-  // does not produce `//api/...`. Treat empty/whitespace as "unset".
   const trimmed = raw.trim().replace(/\/+$/, '');
-  return trimmed || 'http://localhost:8001';
+  return trimmed || '';
 })();
 
 export const api = {
@@ -66,6 +67,27 @@ export const api = {
     return response.json();
   },
 
+  async deleteConversation(conversationId) {
+    const response = await fetch(`${API_BASE}/api/conversations/${conversationId}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) {
+      throw new Error('Failed to delete conversation');
+    }
+  },
+
+  async renameConversation(conversationId, title) {
+    const response = await fetch(`${API_BASE}/api/conversations/${conversationId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title }),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to rename conversation');
+    }
+    return response.json();
+  },
+
   /**
    * Send a message in a conversation.
    */
@@ -87,13 +109,13 @@ export const api = {
   },
 
   /**
-   * Send a message and receive streaming updates.
+   * Send a message or clarification answers and receive streaming updates.
    * @param {string} conversationId - The conversation ID
-   * @param {string} content - The message content
+   * @param {Object} body - `{content, council_type}` for a new message, or `{answers:[...]}` for a clarification round
    * @param {function} onEvent - Callback function for each event: (eventType, data) => void
    * @returns {Promise<void>}
    */
-  async sendMessageStream(conversationId, content, onEvent) {
+  async sendMessageStream(conversationId, body, onEvent) {
     const response = await fetch(
       `${API_BASE}/api/conversations/${conversationId}/message/stream`,
       {
@@ -101,7 +123,7 @@ export const api = {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify(body),
       }
     );
 

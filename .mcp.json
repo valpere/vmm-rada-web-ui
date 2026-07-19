@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "aga2aga": {
+      "type": "http",
+      "url": "http://localhost:3001",
+      "headers": {
+        "Authorization": "Bearer local-dev"
+      }
+    }
+  }
+}
