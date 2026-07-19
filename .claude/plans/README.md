@@ -1,6 +1,6 @@
 # Plans
 
-Implementation plans for the LLM Council frontend.
+Implementation plans for the VMM Rada frontend.
 
 Plans are created by the `/backlog` skill. Each plan is promoted to a GitHub issue, then the plan file is deleted — the issue becomes the source of truth.
 

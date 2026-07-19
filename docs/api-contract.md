@@ -1,11 +1,26 @@
 # API Contract
 
-The frontend communicates with the Go backend (port 8001 by default) via REST + Server-Sent Events. REST endpoints send and receive JSON bodies, while the streaming endpoint uses `text/event-stream` (SSE) and emits events whose `data:` fields contain JSON payloads.
+The frontend communicates with the Go backend (port 8001 by default) via REST +
+Server-Sent Events. REST endpoints send and receive JSON bodies; the streaming
+endpoint uses `text/event-stream` (SSE) and emits events whose `data:` lines
+contain JSON payloads.
 
 ## Design Constraints
 
-- **One question per conversation.** Each conversation stores exactly one user message and one assistant message. Sending a second message to an existing conversation is not supported by the UI — the frontend creates a new conversation for each question.
-- **`metadata` is ephemeral.** The `label_to_model` and `aggregate_rankings` fields are only returned during the streaming response and are not persisted. `GET /api/conversations/{id}` does not include them.
+- **One question per conversation.** Each conversation stores exactly one user
+  message and one assistant message. Sending a second message to an existing
+  conversation is not supported by the UI — the frontend creates a new
+  conversation for each question.
+- **`metadata` is ephemeral.** `label_to_model`, `aggregate_rankings`, and the
+  strategy-specific fields (`vote_tally`, `rank_refine`, `debate`,
+  `moa_aggregator`, `delphi`) are only returned during the streaming/blocking
+  response and are not persisted. `GET /api/conversations/{id}` does not
+  include them.
+- **Strategy is server-side configuration, not a client concern.** The same
+  two endpoints (`/message`, `/message/stream`) serve all seven deliberation
+  strategies. The frontend sends `council_type` (currently hardcoded to
+  `"default"` — see [Known gaps](../CLAUDE.md#known-gaps)); which strategy
+  that name resolves to is decided by backend config, not the UI.
 
 ---
 
@@ -22,14 +37,15 @@ Response:
 [
   {
     "id": "550e8400-e29b-41d4-a716-446655440000",
-    "created_at": "2025-03-21T10:00:00.000000Z",
-    "title": "Why is the sky blue?",
-    "message_count": 2
+    "created_at": "2026-01-15T10:30:00Z",
+    "title": "Explain the trolley problem",
+    "message_count": 4
   }
 ]
 ```
 
-Sorted by `created_at` descending (newest first). Used by `Sidebar` to populate the conversation list.
+Sorted by `created_at` descending (newest first). Returns `[]` when no
+conversations exist. Used by `Sidebar` to populate the conversation list.
 
 ---
 
@@ -42,11 +58,11 @@ Content-Type: application/json
 {}
 ```
 
-Response:
+Response `201 Created`:
 ```json
 {
   "id": "550e8400-e29b-41d4-a716-446655440000",
-  "created_at": "2025-03-21T10:00:00.000000Z",
+  "created_at": "2026-01-15T10:30:00Z",
   "title": "New Conversation",
   "messages": []
 }
@@ -64,35 +80,48 @@ Response:
 ```json
 {
   "id": "550e8400-e29b-41d4-a716-446655440000",
-  "created_at": "2025-03-21T10:00:00.000000Z",
-  "title": "Why is the sky blue?",
+  "created_at": "2026-01-15T10:30:00Z",
+  "title": "Explain the trolley problem",
   "messages": [
-    {
-      "role": "user",
-      "content": "Why is the sky blue?"
-    },
+    { "role": "user", "content": "Explain the trolley problem" },
     {
       "role": "assistant",
-      "stage1": [
-        { "model": "openai/gpt-5.1", "response": "..." }
-      ],
-      "stage2": [
-        {
-          "model": "openai/gpt-5.1",
-          "ranking": "Full evaluation text...",
-          "parsed_ranking": ["Response C", "Response A", "Response B"]
-        }
-      ],
-      "stage3": {
-        "model": "google/gemini-3-pro-preview",
-        "response": "Final synthesized answer..."
-      }
+      "stage1": [ "...StageOneResult[]" ],
+      "stage2": [ "...StageTwoResult[]" ],
+      "stage3": { "...StageThreeResult" },
+      "metadata": { "...Metadata" }
     }
   ]
 }
 ```
 
-Note: `metadata` (`label_to_model`, `aggregate_rankings`) is **not persisted** — it is only returned during the streaming response. `GET` responses will not include it.
+`messages` is heterogeneous — demux by `role`: `"user"` → `{role, content}`;
+`"assistant"` → `{role, stage1, stage2, stage3, metadata}`.
+
+**Errors:** `400` (invalid UUID), `404` (not found).
+
+---
+
+### Delete Conversation
+
+```
+DELETE /api/conversations/{id}
+```
+
+Response `200 OK` (or `204`) — empty body. Used by `Sidebar`'s delete action.
+
+---
+
+### Rename Conversation
+
+```
+PATCH /api/conversations/{id}
+Content-Type: application/json
+
+{"title": "A better title"}
+```
+
+Response: the updated `ConversationMeta`. Used by `Sidebar`'s inline rename.
 
 ---
 
@@ -102,31 +131,21 @@ Note: `metadata` (`label_to_model`, `aggregate_rankings`) is **not persisted** �
 POST /api/conversations/{id}/message
 Content-Type: application/json
 
-{"content": "Why is the sky blue?"}
+{"content": "Explain the trolley problem", "council_type": "default"}
 ```
 
-Response: same assistant message shape as stored in `GET /api/conversations/{id}`, plus a top-level `metadata` field:
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `content` | string | yes | The user's message |
+| `council_type` | string | no | Strategy name; defaults to the backend's `DEFAULT_RADA_TYPE` env var |
 
-```json
-{
-  "stage1": [...],
-  "stage2": [...],
-  "stage3": {...},
-  "metadata": {
-    "label_to_model": {
-      "Response A": "openai/gpt-5.1",
-      "Response B": "anthropic/claude-sonnet-4.5",
-      "Response C": "google/gemini-3-pro-preview",
-      "Response D": "x-ai/grok-4"
-    },
-    "aggregate_rankings": [
-      { "model": "openai/gpt-5.1", "average_rank": 1.5, "rankings_count": 4 }
-    ]
-  }
-}
-```
+Response `200 OK` — same `AssistantMessage` shape as the streaming endpoint's
+terminal state, all at once (waits for all stages to complete). The frontend
+uses the streaming endpoint instead; this one exists for non-streaming
+integrations.
 
-The frontend uses the streaming endpoint instead. This endpoint exists for non-streaming use cases.
+**Errors:** `400` (invalid body/UUID), `404` (not found), `503` (quorum not
+met), `500`.
 
 ---
 
@@ -136,16 +155,25 @@ The frontend uses the streaming endpoint instead. This endpoint exists for non-s
 POST /api/conversations/{id}/message/stream
 Content-Type: application/json
 
-{"content": "Why is the sky blue?"}
+{"content": "Explain the trolley problem", "council_type": "default"}
 ```
 
-Response: `text/event-stream` (Server-Sent Events). See [streaming.md](./streaming.md) for the full event sequence and shapes.
+Response headers:
+```
+Content-Type: text/event-stream
+Cache-Control: no-cache
+X-Accel-Buffering: no
+```
+
+See [streaming.md](./streaming.md) for the full event sequence and payload
+shapes, including the Stage 0 clarification round-trip.
 
 ---
 
 ## Data Types
 
-> These are JSON object shapes. Property types use pseudocode notation (`string`, `number`, `bool`, `array[]`).
+> JSON object shapes. Property types use pseudocode notation (`string`,
+> `number`, `bool`, `array[]`).
 
 ### ConversationMeta
 
@@ -172,10 +200,7 @@ Response: `text/event-stream` (Server-Sent Events). See [streaming.md](./streami
 ### UserMessage
 
 ```
-{
-  role: "user"
-  content: string
-}
+{ role: "user"; content: string }
 ```
 
 ### AssistantMessage (stored)
@@ -192,35 +217,67 @@ Response: `text/event-stream` (Server-Sent Events). See [streaming.md](./streami
 ### StageOneResult
 
 ```
-{ model: string; response: string }
+{
+  label: string        // anonymised label, e.g. "Response A"
+  content: string       // model's answer
+  model: string          // OpenRouter model ID
+  duration_ms: number    // wall-clock time for this model's response
+}
 ```
 
 ### StageTwoResult
 
+Shape for the default `PeerReview` strategy (`kind: "peer_ranking"`). Other
+strategies carry their Stage 2 content in `metadata` instead — see
+[streaming.md](./streaming.md#stage-2-kind-values) for the full polymorphic
+`kind` table.
+
 ```
 {
-  model: string
-  ranking: string           // full evaluation text from the model
-  parsed_ranking: string[]  // extracted ordered list: ["Response C", "Response A", ...]
+  reviewer_label: string   // label of the reviewing model
+  rankings: string[]        // labels ordered best-first
 }
 ```
 
 ### StageThreeResult
 
 ```
-{ model: string; response: string }
+{
+  content: string        // Chairman's synthesised answer
+  model: string           // OpenRouter model ID
+  duration_ms: number
+}
 ```
 
-### Metadata (ephemeral — streaming response only, not stored)
+### Metadata (ephemeral — streaming/blocking response only, not stored)
 
 ```
 {
-  label_to_model: { [label: string]: string }  // "Response A" → "openai/gpt-5.1"
-  aggregate_rankings: {
-    model: string
-    average_rank: number      // lower is better (1.0 = always ranked first)
-    rankings_count: number
-  }[]
+  council_type: string              // strategy name used for this run
+  label_to_model: { [label: string]: string }
+  aggregate_rankings: RankedModel[]  // sorted by score ascending
+  consensus_w: number                // 0–1 agreement weight (PeerReview)
+  // Present only for the matching strategy's kind:
+  vote_tally?: VoteTally
+  rank_refine?: RankRefine
+  debate?: Debate
+  moa_aggregator?: MoaAggregator
+  delphi?: DelphiPanel
+}
+```
+
+### RankedModel
+
+```
+{ model: string; score: number }   // lower score = ranked higher overall
+```
+
+### ClarificationQuestion
+
+```
+{
+  id: string     // stable identifier, e.g. "q1" — use as the id in answer submissions
+  text: string    // question text from the chairman (rendered via react-markdown)
 }
 ```
 
@@ -232,3 +289,7 @@ The backend allows:
 - Origins: `http://localhost:5173`, `http://localhost:3000`
 - Methods: `GET`, `POST`, `OPTIONS`
 - Headers: `Content-Type`
+
+The Vite dev server also proxies `/api` → the backend (see `vite.config.js`),
+so `VITE_API_BASE` is only needed when serving the built frontend from a
+different origin than the API.
