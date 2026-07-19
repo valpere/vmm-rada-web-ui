@@ -27,8 +27,6 @@ dist-ssr
 !.claude/skills/
 !.claude/skills/**
 # Keep ephemeral/local files excluded:
-.claude/.onlooking-from-backend.md
-.claude/.onlooking-from-backend.md.lock
 .claude/settings.local.json
 
 # Editor directories and files

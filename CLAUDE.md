@@ -87,7 +87,7 @@ refactor/{description}        e.g. refactor/extract-sse-handler
 
 **Agents** (invoked via `Agent` tool):
 - `tech-lead` — architectural authority; reviews plans before implementation and code before merging; enforces SSE adapter boundary, App.jsx state model, and security rules
-- `backend-sync` — runs hourly (cron re-created on SessionStart); checks backend git log, SSE contract; exchanges notes via onlooking protocol
+- `backend-sync` — runs hourly (cron re-created on SessionStart); checks backend git log, SSE contract, and new issues for frontend-relevant changes
 - `bug-fixer` — surgical one-bug fix; one bug, one minimal fix, one commit
 - `code-simplifier` — behaviour-preserving JS refactor; no TypeScript, no test suite
 - `docs-maintainer` — post-merge doc sync for CLAUDE.md, docs/, and .proposals.md
@@ -100,10 +100,6 @@ refactor/{description}        e.g. refactor/extract-sse-handler
 All agents have persistent memory in `.claude/agent-memory/<agent-name>/`.
 
 **Proposals:** open `.proposals.md` at repo root for pending ideas and design decisions.
-
-**Onlooking protocol:**
-- Outbox (sole writer): `../llm-council-backend/.claude/.onlooking-from-frontend.md` — always **append**, never overwrite
-- Inbox: `.claude/.onlooking-from-backend.md` — read with flock, truncate after processing
 
 ## Known gaps
 

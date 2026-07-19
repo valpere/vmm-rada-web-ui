@@ -164,7 +164,7 @@ Only modifies `.github/workflows/`. Uses `npm ci`, Node 20, concurrency cancella
 
 **When invoked:** hourly by cron (re-created on `SessionStart`).
 
-Checks `../llm-council-backend` for SSE contract changes, new REST endpoints, and new issues. Exchanges notes with the backend Claude instance via the onlooking protocol (append-only outbox file).
+Checks `../llm-council-backend` for SSE contract changes, new REST endpoints, and new issues relevant to the frontend.
 
 ---
 
@@ -332,24 +332,6 @@ All agents maintain persistent memory in `.claude/agent-memory/<agent-name>/`. M
 Memory files use frontmatter (`name`, `description`, `type`) and are indexed in `MEMORY.md` inside each agent's directory.
 
 **Not saved:** code patterns, architecture, file paths (derivable from the code), git history (use `git log`), anything in `CLAUDE.md`, or ephemeral task state.
-
----
-
-## Onlooking Protocol (Backend ↔ Frontend)
-
-The frontend and backend each have a sibling Claude instance. They exchange notes via append-only files:
-
-| Direction | File | Writer | Reader |
-|-----------|------|--------|--------|
-| Frontend → Backend | `../llm-council-backend/.claude/.onlooking-from-frontend.md` | `backend-sync` agent | Backend Claude |
-| Backend → Frontend | `.claude/.onlooking-from-backend.md` | Backend Claude | `backend-sync` agent |
-
-**Rules:**
-- The outbox is **append-only** — never overwrite; the receiver truncates after reading
-- Use timestamped headings: `## [YYYY-MM-DD HH:MM] Frontend sync — <topic>`
-- Silence is fine when nothing changed
-
-The `backend-sync` agent runs hourly (re-created on `SessionStart`). It checks the backend git log for SSE contract changes and REST endpoint modifications, then sends a note if anything is relevant.
 
 ---
 
