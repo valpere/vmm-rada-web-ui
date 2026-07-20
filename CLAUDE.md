@@ -110,6 +110,7 @@ refactor/{description}        e.g. refactor/extract-sse-handler
 - `code-generator` — full issue implementation lifecycle: branch → code → parallel review → PR
 - `pm-issue-writer` — translates informal requests into RFC 2119-compliant GitHub issue drafts
 - `ci-build-agent` — GitHub Actions workflow creation and CI pipeline maintenance
+- `test-generator` — generates colocated Vitest test files for untested components/utilities; mocks `src/api.js`, never hits the real network
 
 Agents get persistent memory in `.claude/agent-memory/<agent-name>/`, created
 lazily the first time an agent writes to it — the directory won't exist on
