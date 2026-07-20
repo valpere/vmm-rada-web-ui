@@ -91,6 +91,12 @@ Confirm before logging:
 
 Project name is fixed: `"project": "vmm-rada-web-ui"`.
 
+**Redact before writing.** `_patterns/*.jsonl` is gitignored, so entries never appear
+in a PR diff and are never reviewed — but promoted text derived from them (hard rules,
+anti-patterns, cross-project patterns) IS committed. Before writing any free-text field
+(`task`, `mistake`, `resolution`, `win`, `pattern`), strip API keys, tokens, credentials,
+or personal data — summarize the lesson, don't quote the secret.
+
 **For a mistake:**
 
 ```json
@@ -163,15 +169,22 @@ Read existing content, add new line, write back. Never overwrite.
 ### Step 4: Check for promotion triggers
 
 **For mistakes** — read all entries in `mistakes.jsonl`, group by similar `pattern`.
-If any pattern appears **2+ times** → promote to hard rule:
+If any pattern appears **2+ times**, propose a promotion — do not write yet:
 
-> "This mistake has occurred [N] times. Promoting to a hard rule in CLAUDE.md:
+> "This mistake has occurred [N] times. Proposing this hard rule for CLAUDE.md:
 >
-> **[RULE NAME]** *(promoted YYYY-MM-DD — [N] mistakes)*: [instruction]."
+> **[RULE NAME]** *(promoted YYYY-MM-DD — [N] mistakes)*: [instruction].
+>
+> Add this to CLAUDE.md's `## Self-Learning Hard Rules` section? (y/n)"
 
-Add to the project's CLAUDE.md under `## Self-Learning Hard Rules` (create section if absent).
+**CLAUDE.md overrides default behavior for every future session** — a promoted rule
+is a standing instruction, not a log entry. Only write it after the user explicitly
+confirms the exact text shown above; a "yes, log this" from Step 1 is not sufficient
+approval for this separate write. If the user edits the wording, use their version.
 
-**For wins** — if `reusable_in` mentions 2+ distinct areas → add to `_patterns/cross-project.md`.
+**For wins** — if `reusable_in` mentions 2+ distinct areas, propose adding to
+`_patterns/cross-project.md` the same way: show the exact text, wait for explicit
+confirmation, then write.
 
 ### Step 5: Confirm
 
@@ -276,12 +289,23 @@ Stop.
 - [ ] {specific update}
 ```
 
-### Step 4: Auto-apply
+### Step 4: Propose, then apply only after confirmation
 
-1. Promote recurring mistakes to CLAUDE.md (`## Self-Learning Hard Rules`)
-2. Add new anti-patterns to `_patterns/anti-patterns.md`
-3. Add cross-project patterns to `_patterns/cross-project.md`
+Show the report from Step 3 first — it already lists the exact candidate rules,
+anti-patterns, and cross-project entries. Then ask once:
+
+> "Apply the [N] hard rule(s), [N] anti-pattern(s), and [N] cross-project pattern(s)
+> listed above to CLAUDE.md / `_patterns/`? (y/n, or tell me which to skip)"
+
+Only on explicit "yes" (or an edited subset):
+1. Write the confirmed hard rules to CLAUDE.md (`## Self-Learning Hard Rules`)
+2. Write the confirmed anti-patterns to `_patterns/anti-patterns.md`
+3. Write the confirmed cross-project patterns to `_patterns/cross-project.md`
 4. Flag stale patterns (don't auto-remove)
+
+Same reasoning as LOG Step 4: these files are tracked, committed, and (for CLAUDE.md)
+override default behavior for every future session — never write to them from
+unreviewed pattern data without a distinct confirmation.
 
 ### Step 5: Confirm
 
