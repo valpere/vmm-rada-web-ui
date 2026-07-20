@@ -41,6 +41,9 @@ dist-ssr
 .claude/sessions.db-shm
 .claude/session-log.md
 
+# /self-learn pattern data — local learning log, not source
+_patterns/*.jsonl
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
