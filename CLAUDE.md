@@ -97,6 +97,8 @@ refactor/{description}        e.g. refactor/extract-sse-handler
 - `/apply-dreaming` — walk the latest weekly dreaming report, apply high-confidence findings
 - `/session-end` — write today's session summary to `.claude/session-log.md` (also auto-runs on session Stop; this is the higher-quality manual version)
 - `/doubt-driven-development` — subjects non-trivial decisions to a fresh-context adversarial review before they stand; in-flight, not a post-hoc PR verdict like `/fix-review`
+- `/housekeeping` — recurring repo-health check (stale branches, debug output, tracked secrets, framework version drift, CI coverage delta); read-only, pass/fail table
+- `/self-learn` — log mistakes/wins, auto-promote recurring patterns to hard rules in CLAUDE.md (behind explicit confirmation), run retrospectives
 
 **Dependabot PRs** are handled by the global `dependabot-reviewer` agent
 (`~/.claude/agents/dependabot-reviewer.md`), not `/fix-review` or `/ship`.
