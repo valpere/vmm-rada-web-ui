@@ -1,6 +1,6 @@
 # Development Workflow
 
-This document describes the full development process for the LLM Council frontend — from idea to merged code. It covers the roles of humans, skills, and agents, how they interact, and which tool to reach for in each situation.
+This document describes the full development process for the VMM Rada frontend — from idea to merged code. It covers the roles of humans, skills, and agents, how they interact, and which tool to reach for in each situation.
 
 ---
 
@@ -124,7 +124,7 @@ Behaviour preservation is absolute. Applies: optional chaining, nullish coalesci
 
 **When invoked:** after significant changes merge — new SSE event types, new REST endpoints, new architectural patterns, or resolved proposals.
 
-Updates `CLAUDE.md`, `docs/`, `.proposals.md`. Never modifies source code.
+Updates `CLAUDE.md` and `docs/`. Never modifies source code.
 
 ### `security-reviewer` — Security audit
 
@@ -158,13 +158,7 @@ Produces RFC 2119-compliant GitHub issue draft text (does not create the issue d
 
 **When invoked:** when a GitHub Actions workflow needs to be created or modified; when CI fails due to workflow configuration.
 
-Only modifies `.github/workflows/`. Uses `npm ci`, Node 20, concurrency cancellation. Never adds a test step (no test suite).
-
-### `backend-sync` — Cross-repo coordination
-
-**When invoked:** hourly by cron (re-created on `SessionStart`).
-
-Checks `../llm-council-backend` for SSE contract changes, new REST endpoints, and new issues relevant to the frontend.
+Only modifies `.github/workflows/`. Uses `npm ci`, Node 20, concurrency cancellation. Should include a `npm test` step (Vitest suite exists as of the frontend/vmm-rada-monorepo sync).
 
 ---
 
@@ -231,7 +225,7 @@ Used by `/fix-review` (Copilot rulings) and informally by all agents when review
         ▲
        /5\    Style          → NEVER fixed manually — automated by ESLint
       /---\
-     / 4   \  Tests          → N/A (no test suite in this project)
+     / 4   \  Tests          → `npm test` (Vitest); critical paths covered
     /-------\
    /    3    \ Documentation → Is complex logic explained? Misleading names?
   /           \
@@ -363,4 +357,3 @@ The backend must be running before starting the dev server. CORS is configured o
 | Code is complex / hard to read | `code-simplifier` agent |
 | Just merged — docs need sync | `docs-maintainer` agent |
 | CI workflow needed | `ci-build-agent` agent |
-| Backend SSE contract changed | `backend-sync` agent (or check it manually) |
