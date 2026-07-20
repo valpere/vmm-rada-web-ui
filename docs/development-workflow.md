@@ -18,7 +18,7 @@ Skills and agents are different invocation mechanisms for Claude. Skills run in 
 
 ## Skills
 
-All skills are invoked with `/skill-name`. They are defined in `.claude/skills/` and registered per-machine with the symlink setup in `CLAUDE.md`.
+All skills are invoked with `/skill-name`. They are defined in `.claude/skills/` and git-tracked — they work on any clone, no per-machine setup needed.
 
 ### `/backlog` — Plan before coding
 
@@ -50,28 +50,23 @@ All skills are invoked with `/skill-name`. They are defined in `.claude/skills/`
 2. Implement → `npm run lint`
 3. **Parallel pre-PR review:** launch `security-reviewer` + `static-analysis` simultaneously; address findings
 4. Push → create PR with `Closes #N` and debt emoji in title
-5. Poll for Copilot review (up to 5 min); address one round of comments using the Code Review Pyramid
+5. Run `/fix-review` — concurrent multi-model dispatch + arbiter; address findings
 6. Squash merge → `git checkout main && git pull`
 
 **Rules:**
 - One issue at a time
-- Only PRs created by Claude or explicitly named — never touch Dependabot PRs
-- One round of Copilot comments; do not loop on re-reviews
+- Only PRs created by Claude or explicitly named — never touch Dependabot PRs (use the `dependabot-reviewer` agent)
 
-### `/fix-review` — Address review comments
+### `/fix-review` — Multi-model review pipeline
 
-**When to use:** when a PR has Copilot comments to address, or when a Dependabot PR needs triage.
+**When to use:** after opening a PR, to run the multi-model review + arbiter pass before merging. Not for Dependabot PRs — use the `dependabot-reviewer` agent for those.
 
-**Copilot flow:**
-1. Fetch all Copilot comments
-2. Classify each by pyramid layer (see Code Review Pyramid below)
-3. Assign a ruling: CONFIRM / ESCALATE / DISMISS / DEFER
-4. Fix in priority order; run `npm run lint`; commit and push
-
-**Dependabot flow (no Copilot wait needed):**
-- **Patch bump** → merge immediately
-- **Minor bump** → check changelog for breaking changes; merge if clean
-- **Major bump** → write plan, create tracking issue via `/backlog`, comment PR, close PR without merging
+**Flow:**
+1. Dispatch the diff concurrently to 3 reviewer models (`config.yaml`)
+2. Tally findings by `file:line`, attach vote count (informational)
+3. Claude arbiter classifies each by pyramid layer (see Code Review Pyramid below), rules CONFIRM / ESCALATE / DISMISS / DEFER
+4. Fix CONFIRM findings in priority order; run `npm run lint` + `npm test`; commit and push
+5. Post PR comment with findings table; merge if no blockers remain
 
 ### `/find-bugs` — Security and bug audit
 
@@ -93,7 +88,10 @@ Backs its verdict with concrete, actionable findings and best-practice reference
 
 Agents are launched via the `Agent` tool (by Claude or skills). They run in isolated sub-conversations. Some are invoked proactively by other agents; all can be invoked by the human directly.
 
-All agents have persistent memory in `.claude/agent-memory/<agent-name>/`. They accumulate institutional knowledge across conversations.
+Agents get persistent memory in `.claude/agent-memory/<agent-name>/`, created
+lazily the first time an agent writes to it — the directory won't exist on a
+fresh clone. Once created, memory accumulates institutional knowledge across
+conversations.
 
 ### `tech-lead` — Architectural authority
 
@@ -158,7 +156,7 @@ Produces RFC 2119-compliant GitHub issue draft text (does not create the issue d
 
 **When invoked:** when a GitHub Actions workflow needs to be created or modified; when CI fails due to workflow configuration.
 
-Only modifies `.github/workflows/`. Uses `npm ci`, Node 20, concurrency cancellation. Should include a `npm test` step (Vitest suite exists as of the frontend/vmm-rada-monorepo sync).
+Only modifies `.github/workflows/`. Uses `npm ci`, Node 20, concurrency cancellation. Should include a `npm test` step (Vitest suite).
 
 ---
 
@@ -184,7 +182,7 @@ code-simplifier
     ↓ readability pass
 /ship (or manual PR)
     ↓ PR created
-Copilot review → /fix-review (one round)
+/fix-review (multi-model + arbiter)
     ↓
 squash merge → docs-maintainer (if architecture changed)
 ```
@@ -196,30 +194,22 @@ Human reports error/symptom
     ↓
 bug-fixer
     ↓ minimal fix, PR
-/fix-review (Copilot round if needed)
+/fix-review
     ↓
 squash merge
 ```
 
 ### Dependabot pipeline
 
-```
-Dependabot opens PR
-    ↓
-/fix-review (auto-detect Dependabot author)
-    ↓ patch
-merge immediately
-    ↓ minor
-check changelog → merge if clean
-    ↓ major
-write plan → /backlog → tracking issue → close PR
-```
+Handled by the global `dependabot-reviewer` agent (`~/.claude/agents/dependabot-reviewer.md`),
+not `/fix-review` or `/ship` — risk-based SemVer triage, separate from this
+repo's PR-quality pipeline.
 
 ---
 
 ## Code Review Pyramid
 
-Used by `/fix-review` (Copilot rulings) and informally by all agents when reviewing code. Fix from the bottom up.
+Used by `/fix-review`'s arbiter and informally by all agents when reviewing code. Fix from the bottom up.
 
 ```
         ▲
@@ -312,7 +302,10 @@ Closes #N
 
 ## Agent Memory System
 
-All agents maintain persistent memory in `.claude/agent-memory/<agent-name>/`. Memory files survive across conversations, giving agents institutional knowledge about user preferences, project decisions, and patterns to repeat or avoid.
+Agents maintain persistent memory in `.claude/agent-memory/<agent-name>/`
+(created lazily on first write). Memory files survive across conversations,
+giving agents institutional knowledge about user preferences, project
+decisions, and patterns to repeat or avoid.
 
 ### Memory types
 
@@ -349,8 +342,8 @@ The backend must be running before starting the dev server. CORS is configured o
 | Informal request → GitHub issue | `pm-issue-writer` agent → `/backlog` |
 | Implementing a GitHub issue | `/ship` or `code-generator` agent |
 | Bug reported with a stack trace | `bug-fixer` agent |
-| Dependabot PR open | `/fix-review` |
-| PR has Copilot comments | `/fix-review` |
+| Dependabot PR open | `dependabot-reviewer` agent |
+| PR ready for review | `/fix-review` |
 | Audit changed code for security | `security-reviewer` agent or `/find-bugs` |
 | Lint failing | `static-analysis` agent |
 | Plan seems risky / architectural | `tech-lead` agent or `/improve` |

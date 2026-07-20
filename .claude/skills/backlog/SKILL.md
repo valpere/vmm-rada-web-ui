@@ -166,7 +166,7 @@ Execute the plan exactly. After implementation:
 
 - [ ] `npm run lint` passes
 - [ ] Manual smoke test
-- [ ] `/ship` — PR, Copilot review, one fix round, squash merge (`Closes #N` in PR body), checkout main
+- [ ] `/ship` — PR, `/fix-review` (multi-model + arbiter), squash merge (`Closes #N` in PR body), checkout main
 - [ ] `docs-maintainer` if SSE events, REST endpoints, or architecture changed
 
 ### 7. Close issue on merge

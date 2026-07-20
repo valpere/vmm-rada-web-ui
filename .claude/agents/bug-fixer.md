@@ -55,7 +55,7 @@ If a bug points to these patterns, the root cause is elsewhere:
 
 - **State in App.jsx only:** all assistant message state lives in `App.jsx`; components receive it via props
 - **api.js is the only HTTP/SSE client:** never add `fetch` or `EventSource` calls in components
-- **No test suite:** verify by running the dev server and reproducing the issue manually
+- **Verify with `npm test` (Vitest) where a relevant test exists; otherwise reproduce the issue manually** via the dev server
 - **SSE error events:** `{"type":"error","message":"..."}` is a terminal event — stream ends after it
 
 ## Verification

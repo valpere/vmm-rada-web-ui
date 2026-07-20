@@ -2,7 +2,7 @@
 
 ## Project
 
-React 19 + Vite single-page application for **LLM Council** — a 3-stage deliberation system where multiple LLMs answer a question, peer-review each other anonymously, and a Chairman model synthesizes a final answer.
+React 19 + Vite single-page application for **VMM Rada** — a 3-stage deliberation system where multiple LLMs answer a question, peer-review each other anonymously, and a Chairman model synthesizes a final answer.
 
 The frontend communicates with a Go backend running on port 8001 via REST and Server-Sent Events (SSE). See `docs/api-contract.md` and `docs/streaming.md` for the API contract.
 
@@ -13,9 +13,8 @@ npm install       # install dependencies
 npm run dev       # dev server at http://localhost:5173
 npm run build     # production build
 npm run lint      # ESLint
+npm test          # Vitest
 ```
-
-There is no test suite.
 
 ## Architecture
 
