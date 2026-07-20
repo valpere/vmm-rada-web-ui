@@ -96,6 +96,7 @@ refactor/{description}        e.g. refactor/extract-sse-handler
 - `/improve` — research-first critic for plans and designs; SHIP IT / IMPROVE IT / RETHINK IT / KILL IT verdict
 - `/apply-dreaming` — walk the latest weekly dreaming report, apply high-confidence findings
 - `/session-end` — write today's session summary to `.claude/session-log.md` (also auto-runs on session Stop; this is the higher-quality manual version)
+- `/doubt-driven-development` — subjects non-trivial decisions to a fresh-context adversarial review before they stand; in-flight, not a post-hoc PR verdict like `/fix-review`
 
 **Dependabot PRs** are handled by the global `dependabot-reviewer` agent
 (`~/.claude/agents/dependabot-reviewer.md`), not `/fix-review` or `/ship`.
