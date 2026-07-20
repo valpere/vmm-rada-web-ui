@@ -1,220 +1,250 @@
 ---
 name: fix-review
-description: Address Copilot review comments on the current open PR, or review and merge a Dependabot PR. For Dependabot: checks semver bump level, changelog, and breaking changes before merging. No Copilot wait required.
+description: Multi-model PR review pipeline. Dispatches the diff concurrently to 3 reviewer models (config.yaml), tallies vote counts per finding (informational), then Claude acts as arbiter (CONFIRM / DISMISS / DEFER) and merges when clean. Invoke with an optional PR number (defaults to the current branch's open PR). Dependabot PRs are handled by the global dependabot-reviewer agent, not this skill.
 user-invocable: true
-argument-hint: "[pr-number] — defaults to the PR for the current branch"
+argument-hint: "[pr-number]"
 metadata:
-  version: "1.3"
-  author: frontend-claude
-  last_updated: "2026-03-22"
+  version: "2.0.0"
+  domain: code-review
+  scope: quality-gate
+  debt-level: balanced
 ---
 
 # /fix-review
 
-## Entry: detect PR type
+Multi-model PR review pipeline for vmm-rada-web-ui.
+
+For Dependabot PRs, use the global `dependabot-reviewer` agent
+(`~/.claude/agents/dependabot-reviewer.md`) instead — risk-based SemVer
+triage, not this pipeline.
+
+## Code Review Pyramid (arbiter evaluates in this order — base first)
+
+```
+        ▲
+       /5\    Style       → NEVER flagged — ESLint handles this
+      /---\
+     / 4   \  Tests       → Critical paths covered? (Vitest + Testing Library)
+    /-------\
+   /    3    \ Docs        → Complex logic explained?
+  /           \
+ /      2      \ Implementation → Bugs, null checks, stale closures, SSE
+/_______________\                 handling, XSS/security, performance
+       1          Architecture   → Adapter-boundary violations, state
+                                    writes outside App.jsx, raw HTML
+                                    rendering of LLM output
+```
+
+**Priority:** Layer 1 errors → Layer 1 warnings → Layer 2 errors → Layer 2 warnings → Layer 3–4 → suggestions. An architectural flaw makes implementation fixes irrelevant — always fix from the base up.
+
+**Layer 1 checks are the four immutable rules in `.claude/context-essentials.md`** — components stay pure UI, `src/api.js` is the sole adapter boundary, `App.jsx` owns all state, `react-markdown` is the only LLM-output renderer. Treat any diff that violates these as a Layer 1 error regardless of what the reviewer models flag.
+
+## Pipeline
+
+```
+Concurrent dispatch (config.yaml reviewers.openrouter.*):
+  Reviewer model 1 (round_1) ──┐
+  Reviewer model 2 (round_2) ──┼──→ JSON findings arrays
+  Reviewer model 3 (round_3) ──┘
+       ↓
+  Vote tally: group by file:line, attach count N/3 (informational only)
+  All findings reach the arbiter — votes do not gate
+       ↓
+  Arbiter (Claude, main instance)
+    → full diff + all findings with vote metadata
+    → CONFIRM / DISMISS / DEFER each finding
+    → fix CONFIRM findings → commit+push
+    → post PR comment with vote table
+    → merge if no CONFIRM blockers remain
+```
+
+Note: `config.yaml` uses `round_1/round_2/round_3` keys for historical reasons — these
+are concurrent dispatches, not sequential rounds. The models to use are always read from
+`config.yaml`; do not hardcode model names here.
+
+CLI failover tier (config.yaml `reviewers.cli`) engages automatically when the Ollama
+cloud endpoint probe fails — same flow, local models instead of cloud.
+
+## Step-by-step execution
+
+### 0. Resolve PR
+
+If an argument was given, use that PR number. Otherwise run:
+```bash
+gh pr view --json number,headRefName,state,author
+```
+Confirm the PR is open. If `author.login == "dependabot[bot]"`, stop and
+tell the user to invoke the `dependabot-reviewer` agent instead — this
+skill is for human-authored PRs. Store the PR number as `$PR`.
+
+### 1. Fetch the full diff
 
 ```bash
-gh pr view <number> --json author,title,headRefName,body
+gh pr diff $PR
 ```
 
-- If `author.login == "dependabot[bot]"` → follow **Dependabot flow** below.
-- Otherwise → follow **Copilot review flow** below.
+Store it as the **baseline diff** (used in dispatch and arbiter pass).
 
----
+### 2. Load reviewer config
 
-## Dependabot flow
+Read `.claude/skills/fix-review/config.yaml`. Extract:
+- `reviewers.openrouter.round_1/2/3` — cloud reviewer models
+- `openrouter_api_url` — Ollama endpoint (`http://localhost:11434/v1/chat/completions`)
+- `reviewers.cli` — local failover models (used if cloud endpoint unreachable)
 
-No Copilot wait needed — bump level determines the workflow: patches can be merged immediately, while minor and major bumps require the checks described below (with major bumps always closed after creating a tracking issue).
+First, extract the actual model names you just read from `config.yaml`:
+```bash
+# Use the exact model name strings from reviewers.openrouter.round_1/2/3
+ROUND1="<exact round_1 model string>"   # e.g. qwen3.5:cloud
+ROUND2="<exact round_2 model string>"   # e.g. minimax-m2.7:cloud
+ROUND3="<exact round_3 model string>"   # e.g. gemma4:31b-cloud
+```
 
-### 1. Read the PR
+Then probe the endpoint:
+```bash
+MODELS_JSON=$(curl -sf --max-time 5 http://localhost:11434/v1/models 2>/dev/null)
+
+if [ -z "$MODELS_JSON" ]; then
+  TIER="cli"
+  echo "⚠️  Ollama endpoint unreachable — using CLI tier"
+else
+  # Extract model IDs robustly (handles spaces after colon in JSON)
+  AVAILABLE=$(echo "$MODELS_JSON" | grep -oP '"id"\s*:\s*"\K[^"]+')
+  if echo "$AVAILABLE" | grep -qF "$ROUND1" \
+     || echo "$AVAILABLE" | grep -qF "$ROUND2" \
+     || echo "$AVAILABLE" | grep -qF "$ROUND3"; then
+    TIER="cloud"
+  else
+    TIER="cli"
+    echo "⚠️  Ollama online but none of the configured models loaded — using CLI tier"
+    echo "    Expected one of: $ROUND1 | $ROUND2 | $ROUND3"
+  fi
+fi
+```
+
+If `TIER="cli"` for any reason → use CLI failover tier (`reviewers.cli`).
+
+### 3. Concurrent review dispatch
+
+Build the review prompt combining the baseline diff with instructions:
+
+> "Review this PR diff. Return ONLY a raw JSON array of findings — no prose, no markdown
+> fences. Each finding: `{\"file\": \"path\", \"line\": N, \"layer\": 1-5, \"severity\":
+> \"error|warn|sugg\", \"description\": \"...\"}`. Flag only real issues per the Code
+> Review Pyramid. Layer 5 (style) is never flagged."
+
+Send the prompt to each reviewer model via `ollama-review.sh`:
 
 ```bash
-gh pr view <number> --json title,body,headRefName
+PROMPT="<diff + instructions>"
+
+R1=$(echo "$PROMPT" | bash .claude/skills/fix-review/ollama-review.sh <round_1_model>)
+R2=$(echo "$PROMPT" | bash .claude/skills/fix-review/ollama-review.sh <round_2_model>)
+R3=$(echo "$PROMPT" | bash .claude/skills/fix-review/ollama-review.sh <round_3_model>)
 ```
 
-Extract: package name, old version, new version.
+Each call returns a JSON array (empty `[]` on parse failure — safe degradation).
 
-### 2. Classify the bump
+### 4. Tally findings
 
-| Bump | Action |
-|------|--------|
-| **patch** (x.y.Z) | Merge immediately — no review needed |
-| **minor** (x.Y.z) | Scan changelog/release notes for deprecations or behaviour changes; merge if clean |
-| **major** (X.y.z) | Read migration guide, write a plan file, invoke `/backlog` to create a tracking issue, close the PR without merging |
+Merge all three arrays. Group findings by `file:line`. For each unique `file:line`,
+count how many of the 3 models flagged it.
 
-### 3. Check for breakage (minor and major)
+Attach `votes: N/3` to each finding as **informational metadata only**. All findings
+(even `votes: 1/3`) are passed to the arbiter — vote counts are a confidence signal,
+not a gate. The arbiter's dismiss rate (~80%) is the actual filter.
 
-- Read the package's CHANGELOG or GitHub release notes (use WebFetch if needed).
-- Grep the codebase for any API surfaces flagged as removed/changed:
-  ```bash
-  grep -r "<symbol>" src/
-  ```
-- If breaking usage is found for **minor**: report to the user, do not merge.
-- For **major**: always proceed to step 3a regardless of whether breaking usage is found.
+### 5. Arbiter pass (Claude, main instance)
 
-### 3a. Major bump — write plan, create issue, close PR
-
-1. **Write a plan file** to `.claude/plans/1-migrate-<package>-v<N>.md` where `<package>` is a slugified package name (strip leading `@`, replace `/` with `-`; e.g. `@scope/name` → `scope-name`):
-
-```markdown
----
-title: "Migrate <package> from v<old> to v<new>"
-type: chore
-priority: p1-high
-status: ready
-debt: balanced
-effort: m
-component:
-  - dx
-labels:
-  - chore
-  - p1-high
-  - dx
-  - deps
-blocked_by: null
-github_issue: null
-created: <YYYY-MM-DD>
-updated: <YYYY-MM-DD>
----
-```
-
-   Plan body (implementation details only — no Summary/AC, those go in the issue):
-   - Files to change (from grep results)
-   - Breaking API changes found in the migration guide
-   - Step-by-step migration approach
-   - Risks and unknowns
-
-2. **Invoke `/backlog` for the just-created plan**:
-   - Run `/backlog` with no arguments.
-   - When prompted to choose a plan file, enter the path to the plan you just created (e.g. `.claude/plans/1-migrate-<package>-v<new>.md`).
-   - Confirm creation of the GitHub issue when `/backlog` asks.
-   - `/backlog` will deduplicate, create the GitHub issue, and delete the plan file. Record the issue number it returns.
-
-3. **Comment on the Dependabot PR** referencing the issue:
-   ```bash
-   gh pr comment <number> --body "Major version bump — migration tracked in #<issue>. Closing this PR; Dependabot will reopen when ready to merge."
-   ```
-
-4. **Close the Dependabot PR** without merging:
-   ```bash
-   gh pr close <number>
-   ```
-
-5. **Report** — package, old → new, issue number created, PR closed.
-   Stop here. Do not merge. The migration issue is now in the backlog.
-
-### 4. Merge (patch / clean minor only)
-
+Re-fetch the full diff post-dispatch (should be unchanged, but confirms branch state):
 ```bash
-gh pr merge <number> --merge
+gh pr diff $PR
 ```
 
-Use `--merge` (not squash) to preserve Dependabot's commit for auditability.
+For each finding (ordered Layer 1 first), apply the Code Review Pyramid:
 
-### 5. Return to main
+| Ruling | Meaning | Action |
+|--------|---------|--------|
+| **CONFIRM** | Real issue, correctly identified | Fix it |
+| **ESCALATE** | Real issue, more severe than flagged | Fix it, note severity upgrade |
+| **DISMISS** | False positive or conflicts with project patterns | Skip, note reason |
+| **DEFER** | Valid concern, out of scope for this PR | Create a GitHub issue |
 
+Also run an **independent scan** of the full diff — look for anything the models missed,
+especially violations of the four immutable rules in `context-essentials.md` (a direct
+`fetch`/`api.js` call from a component, a state write outside `App.jsx`, raw HTML
+rendering of LLM output, a new competing renderer).
+
+For CONFIRM/ESCALATE findings:
+1. Apply the fix using Edit.
+2. Commit + push:
+```bash
+git add <files>
+git commit -m "fix(pr#$PR): arbiter — address confirmed findings"
+git push
+```
+
+For DEFER findings:
+```bash
+gh issue create --title "..." --body "..."
+```
+
+### 6. Post PR comment
+
+Post a single collapsible summary:
+
+```
+<details>
+<summary>/fix-review — parallel pass · N findings · N confirmed · N dismissed · N deferred</summary>
+
+| File:Line | Votes | Layer | Sev | Ruling | Note |
+|-----------|-------|-------|-----|--------|------|
+| src/components/Stage2.jsx:42 | 2/3 | 2 | error | CONFIRM | missing null check on metadata.label_to_model |
+| src/api.js:87 | 1/3 | 5 | sugg | DISMISS | style — not flagged by pyramid |
+
+Models: <round_1_model>, <round_2_model>, <round_3_model> (from config.yaml)
+Arbiter: Claude Sonnet 4.6
+
+</details>
+```
+
+### 7. Merge decision
+
+Run before merging:
+```bash
+npm run lint
+npm test
+```
+Block merge if either fails.
+
+**Proceed to merge** if:
+- No unresolved CONFIRM blockers remain
+- All High-severity security findings are CONFIRM (fixed) or DISMISS (justified)
+- `npm run lint` and `npm test` both pass
+
+**Block merge** if:
+- Any unfixed High-severity security finding exists
+- Lint or tests fail
+
+Merge with squash:
+```bash
+gh pr merge $PR --squash --delete-branch
+```
+
+Then sync main:
 ```bash
 git checkout main && git pull
 ```
 
-### 6. Report
+## Exit conditions
 
-Package, old → new version, bump level, any findings, merge commit or reason blocked.
-
----
-
-## Copilot review flow
-
-### Code Review Pyramid
-
-All Copilot comments are classified by pyramid layer before fixing. Fix from the bottom up — highest value is at the base.
-
-```
-        ▲
-       /5\         Style          → NEVER fixed — automated by ESLint
-      /---\
-     / 4   \       Tests          → N/A (no test suite)
-    /-------\
-   /    3    \     Documentation  → Is complex logic explained?
-  /           \
- /      2      \   Correctness    → Bugs, null checks, stale closures, security, performance
-/_______________\
-       1          Architecture   → SSE adapter boundary, App.jsx state model, design flaws
-```
-
-**Fix priority order (within a PR):**
-1. Layer 1 errors
-2. Layer 1 warnings
-3. Layer 2 errors
-4. Layer 2 warnings
-5. Layer 3 issues
-6. Suggestions (any layer)
-
-**Why this order matters:** An architectural flaw (Layer 1) can make correctness fixes (Layer 2) irrelevant — polishing broken scaffolding. Fix the foundation first.
-
-### Layer Reference
-
-| Layer | Concern | Examples |
-|-------|---------|---------|
-| **1** | Architecture & design | SSE adapter boundary violation, state mutation outside App.jsx, wrong abstraction |
-| **2** | Correctness | Bugs, null handling gaps, missing error branches, stale closures, race conditions, security |
-| **3** | Documentation | Complex logic without comment, misleading naming, undocumented non-obvious behaviour |
-| **4** | Tests | N/A — project has no test suite |
-| **5** | Style | Formatting — automated by ESLint, **never hand-fixed** |
-
-### Rules
-
-- Process **one round** of Copilot comments only. Do not loop waiting for a second review.
-- If a comment conflicts with project decisions (CLAUDE.md, memory), note the conflict and skip rather than blindly applying.
-- If the PR has no unresolved Copilot comments, report that and stop.
-
-### Rulings
-
-For each comment, assign a ruling before deciding what to do:
-
-| Ruling | Meaning | Action |
-|--------|---------|--------|
-| **CONFIRM** | Real issue, model was right | Fix it |
-| **ESCALATE** | Real issue, more severe than flagged | Fix it, note severity upgrade |
-| **DISMISS** | False positive or conflicts with project patterns | Skip, note reason |
-| **DEFER** | Real but out of scope for this PR | Log only, do not fix |
-
-### Steps
-
-1. **Find the PR** — use the argument if given, otherwise detect from current branch:
-   ```bash
-   gh pr view --json number,title,headRefName
-   ```
-
-2. **Read all Copilot comments:**
-   ```bash
-   gh pr view <number> --json reviews,comments
-   gh api repos/{owner}/{repo}/pulls/<number>/comments
-   ```
-   Filter to comments from `copilot-pull-request-reviewer` or `github-advanced-security`.
-
-3. **Classify each comment** by pyramid layer. Sort by fix priority order before implementing.
-
-4. **Implement fixes** — read the relevant files, apply changes. Keep fixes minimal (⚡ scope unless the comment explicitly requests more). Do not refactor surrounding code.
-
-5. **Lint:**
-   ```bash
-   npm run lint
-   ```
-   Fix any new lint errors introduced.
-
-6. **Commit and push:**
-   ```bash
-   git add <changed files>
-   git commit -m "fix-review: address Copilot comments"
-   git push
-   ```
-
-7. **Report** — list each comment with its ruling (CONFIRM/ESCALATE/DISMISS/DEFER) and what was done. Note any comments skipped and why.
-
-## What NOT to do
-
-- Do not merge the PR — that is `/ship`'s job (except Dependabot patches/minor above).
-- Do not wait for a new Copilot review cycle.
-- Do not open new issues or PRs.
-- Do not fix Layer 5 (style) comments — ESLint handles those.
+| State | Action |
+|-------|--------|
+| All findings arbitrated, no blockers | Merge |
+| Cloud endpoint unreachable | Fall back to CLI tier, proceed |
+| Model returns non-JSON | Treat as 0 findings for that model, proceed |
+| Round fails to push | Stop, report error to user |
+| PR already merged | Report and exit |
+| PR has merge conflicts | Stop, ask user to resolve |
+| `npm run lint` or `npm test` fails | Fix if trivial and in scope, else block merge and report |
+| PR authored by dependabot[bot] | Stop, direct user to `dependabot-reviewer` agent |

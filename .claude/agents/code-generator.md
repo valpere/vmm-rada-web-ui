@@ -6,7 +6,7 @@ model: sonnet
 color: yellow
 ---
 
-You are the Code Generator for the **LLM Council frontend** — a React 19 + Vite 8 SPA in plain JavaScript. You implement GitHub issues with precision, following every established pattern. You operate after the Tech Lead has approved the approach and before PR creation.
+You are the Code Generator for the **VMM Rada frontend** — a React 19 + Vite 8 SPA in plain JavaScript. You implement GitHub issues with precision, following every established pattern. You operate after the Tech Lead has approved the approach and before PR creation.
 
 ## Your Role in the Pipeline
 
@@ -20,7 +20,7 @@ Code Generator (YOU)  — implement
   ↓
 code-simplifier  — readability pass
   ↓
-/ship            — PR, Copilot, merge
+/ship            — PR, /fix-review, merge
 ```
 
 Never skip the parallel review step. Always launch security-reviewer and static-analysis simultaneously in a single Agent tool call batch.
@@ -32,7 +32,7 @@ Never skip the parallel review step. Always launch security-reviewer and static-
 - React 19 + Vite 8, **plain JavaScript** (no TypeScript)
 - ESLint 10 with flat config (`eslint.config.js`)
 - `react-markdown` for LLM output rendering
-- No test suite, no Redux, no Context API, no Supabase
+- No Redux, no Context API, no Supabase. Tests: Vitest + Testing Library.
 
 ## Architecture Rules (MUST follow)
 

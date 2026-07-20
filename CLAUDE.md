@@ -12,19 +12,22 @@ npm run lint       # ESLint
 npm run preview    # serve the production build locally
 ```
 
-**Skill setup (one-time, per machine):**
-```bash
-mkdir -p ~/.claude/skills
-for skill in .claude/skills/*/; do
-  [ -d "$skill" ] || continue
-  ln -sfn "$(pwd)/$skill" ~/.claude/skills/"$(basename "$skill")"
-done
-```
+Test suite: `npm test` (Vitest + Testing Library). Single file:
+`npx vitest run src/api.test.js`. Single test by name: `npx vitest run -t
+"<test name>"`. Watch mode: `npm run test:watch`.
 
-This registers all project skills in `.claude/skills/` as slash commands in Claude Code.
-Note: `.claude/` is excluded from git by the global gitignore (`.*`), so skill files live only on the local filesystem and must be set up per machine using the snippet above.
+`.claude/agents/`, `.claude/skills/`, `.claude/plans/`, `.claude/dreaming/`,
+and `.claude/context-essentials.md` are git-tracked (explicitly un-ignored
+in `.gitignore` — no manual symlink setup needed, they work on any clone).
+`.claude/settings.local.json` (session-recall/session-end hooks) and
+`.claude/agent-memory/` (created lazily on first agent write) stay
+per-machine and are gitignored.
 
-Test suite: `npm test` (Vitest + Testing Library).
+**One-time per-machine setup:** `/recall` (semantic session search) is a
+**user-level** skill (`~/.claude/skills/session-recall/`) — nothing to
+install here. It requires the `session-indexer` binary on `PATH`; if
+missing, `/recall` prints install instructions
+(`~/wrk/common/skills/session-recall/generate/SKILL.md`).
 
 ## Architecture
 
@@ -87,10 +90,15 @@ refactor/{description}        e.g. refactor/extract-sse-handler
 
 **Skills** (invoke with `/skill-name`):
 - `/backlog` — show top 5 backlog items or plan a specific task; reads affected files, writes a plan file, offers to create a GitHub issue
-- `/fix-review` — address Copilot PR comments (one round, Code Review Pyramid priority); does not merge
-- `/ship` — full PR lifecycle: lint → create PR → Copilot → fix → squash merge → checkout main
+- `/fix-review` — multi-model PR review (3 concurrent Ollama models + Claude arbiter, see `.claude/skills/fix-review/config.yaml`); merges when clean. Not Copilot-based.
+- `/ship` — full issue lifecycle: branch → implement → pre-PR review → PR → `/fix-review` → merge → resolve → next
 - `/find-bugs` — 5-phase security/bug audit of current branch changes; report-only
 - `/improve` — research-first critic for plans and designs; SHIP IT / IMPROVE IT / RETHINK IT / KILL IT verdict
+- `/apply-dreaming` — walk the latest weekly dreaming report, apply high-confidence findings
+- `/session-end` — write today's session summary to `.claude/session-log.md` (also auto-runs on session Stop; this is the higher-quality manual version)
+
+**Dependabot PRs** are handled by the global `dependabot-reviewer` agent
+(`~/.claude/agents/dependabot-reviewer.md`), not `/fix-review` or `/ship`.
 
 **Agents** (invoked via `Agent` tool):
 - `tech-lead` — architectural authority; reviews plans before implementation and code before merging; enforces SSE adapter boundary, App.jsx state model, and security rules
@@ -103,7 +111,16 @@ refactor/{description}        e.g. refactor/extract-sse-handler
 - `pm-issue-writer` — translates informal requests into RFC 2119-compliant GitHub issue drafts
 - `ci-build-agent` — GitHub Actions workflow creation and CI pipeline maintenance
 
-All agents have persistent memory in `.claude/agent-memory/<agent-name>/`.
+Agents get persistent memory in `.claude/agent-memory/<agent-name>/`, created
+lazily the first time an agent writes to it — the directory won't exist on
+a fresh clone.
+
+**Session recall & dreaming:** `/recall <query>` (user-level skill) searches
+past session transcripts semantically. `.claude/dreaming/` runs a weekly
+scheduled self-review (drift from `context-essentials.md`, recurring
+`/fix-review` themes, stale plans) — see `.claude/dreaming/README.md` for
+the systemd timer setup. Reports land in `.claude/dreaming/reports/`,
+applied via `/apply-dreaming`.
 
 ## Known gaps
 
