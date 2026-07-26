@@ -1,8 +1,19 @@
 import { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
-import { api } from './api';
+import { api, ApiError } from './api';
 import './App.css';
+
+// isConversationClosedError reports whether an error thrown from the API
+// adapter indicates the conversation was closed before this request finished.
+// Backend (vmm-rada@0aa5178, PR #310) returns 409 with `code: ErrConversationClosed`
+// for clarification round-N answers on a closed conversation. We also accept
+// the kebab-case form some intermediate layers emit.
+function isConversationClosedError(err) {
+  if (!(err instanceof ApiError)) return false;
+  if (err.status !== 409) return false;
+  return err.code === 'ErrConversationClosed' || err.code === 'conversation_closed';
+}
 
 // Maps a persisted council_type (or a strategy-emitted Stage 2 kind) to the
 // kind value the Stage2 dispatcher expects. Today only PeerReview is
@@ -302,10 +313,28 @@ function App() {
       );
     } catch (error) {
       console.error('Failed to send message:', error);
-      setCurrentConversation((prev) => ({
-        ...prev,
-        messages: prev.messages.slice(0, -2),
-      }));
+      if (isConversationClosedError(error)) {
+        // 409 ErrConversationClosed: keep the messages in place, surface the
+        // error on the assistant message, and mark the conversation closed so
+        // the input disables. Don't roll back the optimistic user/assistant
+        // pair — the user needs to see *why* their message didn't go through.
+        setCurrentConversation((prev) => {
+          if (!prev) return prev;
+          const messages = [...prev.messages];
+          const last = messages[messages.length - 1];
+          if (last && last.role === 'assistant') {
+            last.error = 'This conversation has been closed and can no longer accept messages.';
+            last.loading = { stage0: false, stage1: false, stage2: false, stage3: false };
+          }
+          return { ...prev, messages, closed: true };
+        });
+      } else {
+        // Any other failure: roll back the optimistic user/assistant pair.
+        setCurrentConversation((prev) => ({
+          ...prev,
+          messages: prev.messages.slice(0, -2),
+        }));
+      }
       setIsLoading(false);
     }
   };
@@ -336,6 +365,35 @@ function App() {
       );
     } catch (error) {
       console.error('Failed to submit answers:', error);
+      if (isConversationClosedError(error)) {
+        // 409 ErrConversationClosed: keep the pendingClarification cleared,
+        // surface the error on the assistant message, and mark the conversation
+        // closed. The user kept their answers; they need to see why the server
+        // refused them.
+        setCurrentConversation((prev) => {
+          if (!prev) return prev;
+          const messages = [...prev.messages];
+          const last = messages[messages.length - 1];
+          if (last && last.role === 'assistant') {
+            last.error = 'This conversation has been closed and can no longer accept answers.';
+            last.loading = { stage0: false, stage1: false, stage2: false, stage3: false };
+          }
+          return { ...prev, messages, closed: true };
+        });
+      } else {
+        // Any other failure: restore the pendingClarification so the user can
+        // retry. The optimistic clearing we did above is reverted.
+        setCurrentConversation((prev) => {
+          if (!prev) return prev;
+          const messages = [...prev.messages];
+          const last = messages[messages.length - 1];
+          if (last && last.role === 'assistant') {
+            last.error = null;
+            last.loading = { ...last.loading, stage1: false };
+          }
+          return { ...prev, messages };
+        });
+      }
       setIsLoading(false);
     }
   };

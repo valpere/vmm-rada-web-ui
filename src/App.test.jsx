@@ -7,9 +7,11 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from './App';
+import { ApiError } from './api';
 
 // Hoisted mock factory — vi.mock is hoisted above imports, so the spies it
-// references must be hoisted too.
+// references must be hoisted too. ApiError is re-exported as a real class so
+// `instanceof ApiError` works inside App.jsx when the test rejects with one.
 const { mockApi } = vi.hoisted(() => ({
   mockApi: {
     listConversations: vi.fn(),
@@ -20,7 +22,10 @@ const { mockApi } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock('./api', () => ({ api: mockApi }));
+vi.mock('./api', async () => {
+  const actual = await vi.importActual('./api');
+  return { api: mockApi, ApiError: actual.ApiError };
+});
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -244,3 +249,128 @@ describe('loadConversation propagates closed flag', () => {
   });
 });
 
+// ── 409 ErrConversationClosed catch paths ─────────────────────────────────
+// Per backend vmm-rada@0aa5178 (PR #310), submitting a message or clarification
+// answers to a closed conversation returns 409 with
+// `code: ErrConversationClosed`. App.jsx must surface this as a typed error on
+// the assistant message and mark the conversation closed, instead of rolling
+// back the optimistic user/assistant pair.
+
+describe('409 ErrConversationClosed on handleSendMessage', () => {
+  it('surfaces the typed error on the assistant message and marks closed', async () => {
+    mockApi.listConversations.mockResolvedValue([
+      { id: 'conv-1', title: 'One', created_at: '2026-05-02T12:00:00Z' },
+    ]);
+    mockApi.getConversation.mockResolvedValue(makeConversation());
+    mockApi.sendMessageStream.mockRejectedValueOnce(
+      new ApiError({ code: 'ErrConversationClosed', status: 409, message: 'conversation closed' }),
+    );
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole('button', { name: /One/ }));
+
+    const input = await screen.findByPlaceholderText(/Ask a question/i);
+    await waitFor(() => expect(input).not.toBeDisabled());
+
+    await user.type(input, 'hello');
+    await user.click(screen.getByRole('button', { name: /Send/i }));
+
+    // Friendly, actionable error rendered (not the generic "Failed to send").
+    expect(
+      await screen.findByText(/This conversation has been closed/i),
+    ).toBeInTheDocument();
+    // Conversation marked closed: input now disables with the closed-state copy.
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText(/conversation has ended/i)).toBeDisabled(),
+    );
+  });
+
+  it('rolls back the optimistic messages on a non-409 error', async () => {
+    mockApi.listConversations.mockResolvedValue([
+      { id: 'conv-1', title: 'One', created_at: '2026-05-02T12:00:00Z' },
+    ]);
+    mockApi.getConversation.mockResolvedValue(makeConversation());
+    mockApi.sendMessageStream.mockRejectedValueOnce(
+      new Error('network blip'),
+    );
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole('button', { name: /One/ }));
+
+    const input = await screen.findByPlaceholderText(/Ask a question/i);
+    await waitFor(() => expect(input).not.toBeDisabled());
+
+    await user.type(input, 'hello');
+    await user.click(screen.getByRole('button', { name: /Send/i }));
+
+    // On a non-409 failure, the optimistic user + assistant pair is rolled
+    // back, so the "closed conversation" copy never appears.
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText(/Ask a question/i)).not.toBeDisabled(),
+    );
+    expect(
+      screen.queryByText(/This conversation has been closed/i),
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe('409 ErrConversationClosed on handleAnswerSubmit', () => {
+  it('surfaces the typed error on the assistant message and marks closed', async () => {
+    mockApi.listConversations.mockResolvedValue([
+      { id: 'conv-1', title: 'One', created_at: '2026-05-02T12:00:00Z' },
+    ]);
+    mockApi.getConversation.mockResolvedValue(makeConversation());
+    mockApi.sendMessageStream
+      // First call: trigger a Stage 0 clarification round.
+      .mockImplementationOnce(
+        scriptedStream([
+          [
+            'stage0_round_complete',
+            {
+              type: 'stage0_round_complete',
+              data: {
+                round: 1,
+                questions: [{ id: 'q1', text: 'Which framework?' }],
+              },
+            },
+          ],
+        ]),
+      )
+      // Second call: the user submits answers, conversation is now closed.
+      .mockRejectedValueOnce(
+        new ApiError({ code: 'ErrConversationClosed', status: 409, message: 'conversation closed' }),
+      );
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole('button', { name: /One/ }));
+
+    const input = await screen.findByPlaceholderText(/Ask a question/i);
+    await waitFor(() => expect(input).not.toBeDisabled());
+
+    // Send a question — this drives Stage 0 round 1.
+    await user.type(input, 'help me choose');
+    await user.click(screen.getByRole('button', { name: /Send/i }));
+
+    // Now Stage 0 has produced a pending clarification; Stage 0 renders its own
+    // answer textarea and submit button (separate from ChatInterface's bottom
+    // "Ask a question…" form, which is informational when a clarification is
+    // pending).
+    const answerTextarea = await screen.findByPlaceholderText(/Your answer/i);
+    await user.type(answerTextarea, 'react');
+    await user.click(screen.getByRole('button', { name: /Submit answers/i }));
+
+    // 409 catch path: friendly error + conversation closed.
+    expect(
+      await screen.findByText(/This conversation has been closed/i),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText(/conversation has ended/i)).toBeDisabled(),
+    );
+  });
+});
