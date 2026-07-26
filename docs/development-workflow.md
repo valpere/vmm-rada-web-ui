@@ -82,6 +82,36 @@ Runs a 5-phase analysis: architecture violations, correctness issues, null-handl
 
 Backs its verdict with concrete, actionable findings and best-practice references.
 
+### `/apply-dreaming` — Apply weekly dreaming report
+
+**When to use:** Monday morning after the Sunday dreaming cron run produces a fresh report (`.claude/dreaming/reports/YYYY-W##.md`).
+
+Walks each finding interactively, routes load-bearing items through `/backlog` + Tech Lead, and leaves audit-trail annotations on the report.
+
+### `/housekeeping` — Repo health check
+
+**When to use:** any time for a hygiene snapshot.
+
+Read-only pass/fail table covering: stale branches, debug output in source, tracked `.env`/backup files, TODO/FIXME count, framework version drift in docs, and CI coverage delta (when wired).
+
+### `/self-learn` — Mistake/win logging
+
+**When to use:** after any significant task when something went wrong or something worked well.
+
+Logs mistakes/wins to `_patterns/*.jsonl`; auto-promotes recurring patterns to hard rules in `CLAUDE.md` (behind explicit user confirmation); runs retrospectives.
+
+### `/doubt-driven-development` — In-flight adversarial review
+
+**When to use:** for non-trivial decisions before they stand — architectural calls, irreversible operations, or any time a confident answer is cheaper to verify now than to debug later.
+
+Spawns a fresh-context reviewer biased to disprove, not approve. Complements `/fix-review`, which is a post-hoc verdict.
+
+### `/session-end` — Write session summary
+
+**When to use:** manually, or let it auto-run on session Stop.
+
+Writes a summary to `.claude/session-log.md`.
+
 ---
 
 ## Agents
@@ -157,6 +187,12 @@ Produces RFC 2119-compliant GitHub issue draft text (does not create the issue d
 **When invoked:** when a GitHub Actions workflow needs to be created or modified; when CI fails due to workflow configuration.
 
 Only modifies `.github/workflows/`. Uses `npm ci`, Node 20, concurrency cancellation. Should include a `npm test` step (Vitest suite).
+
+### `test-generator` — Generate colocated tests
+
+**When invoked:** when new JS/JSX source (components or utilities) is written or modified and needs a corresponding Vitest test file.
+
+Produces a colocated `*.test.jsx`/`*.test.js` following the repo's existing conventions, mocks `src/api.js`, and never hits the real network.
 
 ---
 
@@ -267,6 +303,7 @@ feat(scope): short description
 docs(scope): short description
 refactor(scope): short description
 chore(scope): short description
+task(scope): short description
 ```
 
 ### PR titles
