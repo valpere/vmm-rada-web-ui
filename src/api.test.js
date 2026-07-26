@@ -5,7 +5,7 @@
 // callback. These tests pin that contract.
 
 import { ReadableStream } from 'node:stream/web';
-import { api } from './api';
+import { api, ApiError } from './api';
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -132,6 +132,22 @@ describe('api.sendMessage', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(notOkResponse(400)));
     await expect(api.sendMessage('abc', 'x')).rejects.toThrow(/Failed to send/);
   });
+
+  it('throws a typed ApiError on 409 with backend code', async () => {
+    const body = JSON.stringify({ code: 'ErrConversationClosed', error: 'conversation closed' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(
+        new Response(body, { status: 409, headers: { 'Content-Type': 'application/json' } }),
+      ),
+    );
+
+    const err = await api.sendMessage('abc', 'x').catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(409);
+    expect(err.code).toBe('ErrConversationClosed');
+    expect(err.message).toBe('conversation closed');
+  });
 });
 
 // ── sendMessageStream ──────────────────────────────────────────────────────
@@ -201,6 +217,24 @@ describe('api.sendMessageStream', () => {
     await expect(
       api.sendMessageStream('abc', { content: 'hi' }, vi.fn()),
     ).rejects.toThrow(/Failed to send/);
+  });
+
+  it('throws a typed ApiError on 409 with backend code', async () => {
+    const body = JSON.stringify({ code: 'ErrConversationClosed', error: 'conversation closed' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(
+        new Response(body, { status: 409, headers: { 'Content-Type': 'application/json' } }),
+      ),
+    );
+
+    const err = await api
+      .sendMessageStream('abc', { content: 'hi' }, vi.fn())
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(409);
+    expect(err.code).toBe('ErrConversationClosed');
+    expect(err.message).toBe('conversation closed');
   });
 
   it('forwards the body verbatim (clarification answers shape)', async () => {

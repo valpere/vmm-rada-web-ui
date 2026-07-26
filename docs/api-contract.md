@@ -144,8 +144,8 @@ terminal state, all at once (waits for all stages to complete). The frontend
 uses the streaming endpoint instead; this one exists for non-streaming
 integrations.
 
-**Errors:** `400` (invalid body/UUID), `404` (not found), `503` (quorum not
-met), `500`.
+**Errors:** `400` (invalid body/UUID), `404` (not found), `409` (conversation
+closed — `code: "ErrConversationClosed"`), `503` (quorum not met), `500`.
 
 ---
 
@@ -167,6 +167,9 @@ X-Accel-Buffering: no
 
 See [streaming.md](./streaming.md) for the full event sequence and payload
 shapes, including the Stage 0 clarification round-trip.
+
+**Errors:** `400` (invalid body/UUID), `404` (not found), `409` (conversation
+closed — `code: "ErrConversationClosed"`), `503` (quorum not met), `500`.
 
 ---
 

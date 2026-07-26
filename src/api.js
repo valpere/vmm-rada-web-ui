@@ -25,6 +25,47 @@ const API_BASE = (() => {
   return trimmed || '';
 })();
 
+// ApiError is the typed error thrown by the API adapter for non-2xx responses.
+// `code` is the backend's machine-readable identifier (e.g. "ErrConversationClosed",
+// "conversation_closed" from vmm-rada@0aa5178 / PR #310). `status` is the HTTP
+// status code. `message` is the human-readable message from the backend when
+// available, falling back to the original generic message. Per architectural
+// rule 2 (adapter boundary), raw HTTP status codes do not leak past this module;
+// App.jsx dispatches on `error.code` / `error instanceof ApiError` instead.
+export class ApiError extends Error {
+  constructor({ code, status, message }) {
+    super(message);
+    this.name = 'ApiError';
+    this.code = code;
+    this.status = status;
+  }
+}
+
+// handleErrorResponse reads the JSON body (if any) for a non-2xx response and
+// returns a typed `ApiError`. For 409 specifically (the only status the
+// backend currently marks as a distinct machine-readable code) we forward the
+// backend's `code` and `message` so App.jsx can branch on it. For other
+// statuses we keep the existing generic message but still surface `status` so
+// downstream code can inspect it if needed.
+async function buildErrorForResponse(response, genericMessage) {
+  let backendCode;
+  let backendMessage;
+  try {
+    const body = await response.json();
+    if (body && typeof body === 'object') {
+      if (typeof body.code === 'string') backendCode = body.code;
+      if (typeof body.error === 'string') backendMessage = body.error;
+    }
+  } catch {
+    // body was not JSON or unreadable — fall back to generic message
+  }
+  return new ApiError({
+    code: backendCode ?? null,
+    status: response.status,
+    message: backendMessage ?? genericMessage,
+  });
+}
+
 export const api = {
   /**
    * List all conversations.
@@ -32,7 +73,7 @@ export const api = {
   async listConversations() {
     const response = await fetch(`${API_BASE}/api/conversations`);
     if (!response.ok) {
-      throw new Error('Failed to list conversations');
+      throw await buildErrorForResponse(response, 'Failed to list conversations');
     }
     return response.json();
   },
@@ -49,7 +90,7 @@ export const api = {
       body: JSON.stringify({}),
     });
     if (!response.ok) {
-      throw new Error('Failed to create conversation');
+      throw await buildErrorForResponse(response, 'Failed to create conversation');
     }
     return response.json();
   },
@@ -62,7 +103,7 @@ export const api = {
       `${API_BASE}/api/conversations/${conversationId}`
     );
     if (!response.ok) {
-      throw new Error('Failed to get conversation');
+      throw await buildErrorForResponse(response, 'Failed to get conversation');
     }
     return response.json();
   },
@@ -72,7 +113,7 @@ export const api = {
       method: 'DELETE',
     });
     if (!response.ok) {
-      throw new Error('Failed to delete conversation');
+      throw await buildErrorForResponse(response, 'Failed to delete conversation');
     }
   },
 
@@ -83,7 +124,7 @@ export const api = {
       body: JSON.stringify({ title }),
     });
     if (!response.ok) {
-      throw new Error('Failed to rename conversation');
+      throw await buildErrorForResponse(response, 'Failed to rename conversation');
     }
     return response.json();
   },
@@ -103,7 +144,7 @@ export const api = {
       }
     );
     if (!response.ok) {
-      throw new Error('Failed to send message');
+      throw await buildErrorForResponse(response, 'Failed to send message');
     }
     return response.json();
   },
@@ -128,7 +169,7 @@ export const api = {
     );
 
     if (!response.ok) {
-      throw new Error('Failed to send message');
+      throw await buildErrorForResponse(response, 'Failed to send message');
     }
 
     const reader = response.body.getReader();
