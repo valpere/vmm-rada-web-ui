@@ -47,6 +47,12 @@ export class ApiError extends Error {
 // backend's `code` and `message` so App.jsx can branch on it. For other
 // statuses we keep the existing generic message but still surface `status` so
 // downstream code can inspect it if needed.
+//
+// When the backend returns 409 with an empty/non-JSON body (e.g. a Go panic
+// returns an empty 409), we fall back to a synthetic code so App.jsx can still
+// recognise the conversation-closed case from the status alone. This is a
+// safety net for unparseable bodies — well-formed responses still drive on
+// `code`.
 async function buildErrorForResponse(response, genericMessage) {
   let backendCode;
   let backendMessage;
@@ -60,7 +66,7 @@ async function buildErrorForResponse(response, genericMessage) {
     // body was not JSON or unreadable — fall back to generic message
   }
   return new ApiError({
-    code: backendCode ?? null,
+    code: backendCode ?? (response.status === 409 ? 'ErrConversationClosed' : null),
     status: response.status,
     message: backendMessage ?? genericMessage,
   });

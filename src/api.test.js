@@ -148,6 +148,21 @@ describe('api.sendMessage', () => {
     expect(err.code).toBe('ErrConversationClosed');
     expect(err.message).toBe('conversation closed');
   });
+
+  it('synthesises ErrConversationClosed on 409 with no body', async () => {
+    // Backend sometimes returns an empty 409 (e.g. panic mid-render). The
+    // adapter must still mark this as conversation-closed so App.jsx can
+    // branch on the status.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(new Response('', { status: 409 })),
+    );
+
+    const err = await api.sendMessage('abc', 'x').catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(409);
+    expect(err.code).toBe('ErrConversationClosed');
+  });
 });
 
 // ── sendMessageStream ──────────────────────────────────────────────────────
