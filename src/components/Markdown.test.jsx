@@ -55,17 +55,20 @@ describe('Markdown', () => {
       expect(container.querySelector('img[onerror]')).toBeNull();
     });
 
-    it('never renders a script tag from an inline HTML anchor with javascript: href', () => {
+    it('strips the javascript: scheme from a link href rather than dropping the link', () => {
       const malicious = '[click me](javascript:window.xssed=true)';
       const { container } = render(<Markdown>{malicious}</Markdown>);
 
       expect(container.querySelector('script')).toBeNull();
-      // If a link is rendered at all, it must not carry a javascript: URI —
-      // react-markdown's default URI transform strips these.
+      // react-markdown's default URI transform renders the anchor but strips
+      // the dangerous scheme (href becomes ""), never drops the link outright.
+      // Assert the link's presence unconditionally — a soft `if (link)` guard
+      // would silently pass if a future regression made the link disappear
+      // entirely instead of sanitizing it, masking exactly the bug this test
+      // exists to catch.
       const link = container.querySelector('a');
-      if (link) {
-        expect(link.getAttribute('href')).not.toMatch(/^javascript:/i);
-      }
+      expect(link).not.toBeNull();
+      expect(link.getAttribute('href')).not.toMatch(/^javascript:/i);
     });
   });
 });
