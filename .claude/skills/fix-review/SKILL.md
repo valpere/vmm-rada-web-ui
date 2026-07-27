@@ -42,10 +42,12 @@ triage, not this pipeline.
 ## Pipeline
 
 ```
-Diff-shape gate: does the diff touch src/?
+Diff-shape gate: does the diff touch src/, package(-lock).json,
+.github/workflows/, or .claude/{skills,agents}/?
   yes → REVIEWER_COUNT=3 (full dispatch, below)
-  no  → REVIEWER_COUNT=1 (round_1 only — non-src/ diffs yield 0 findings
-                           × 3 reviewers every time observed so far)
+  no  → REVIEWER_COUNT=1 (round_1 only — diffs outside all of the above
+                           yield 0 findings × 3 reviewers every time observed
+                           so far, e.g. docs/, context-essentials.md)
        ↓
 Concurrent dispatch (config.yaml reviewers.openrouter.*, REVIEWER_COUNT of them):
   Reviewer model 1 (round_1) ──┐
@@ -92,20 +94,30 @@ Store it as the **baseline diff** (used in dispatch and arbiter pass).
 
 ### 1.5. Diff-shape gate
 
-Check whether the diff touches `src/`:
+Check whether the diff touches any **security-relevant surface** — not just
+`src/`. Supply-chain files (`package.json`, `package-lock.json`), CI workflow
+files (`.github/workflows/`), and prompt/agent-behavior files
+(`.claude/skills/`, `.claude/agents/`) all warrant full scrutiny even when
+`src/` itself is untouched — a compromised dependency pin, a malicious CI
+step, or an edited agent prompt (including edits to *this skill*) are exactly
+the kind of change three independent reviewers exist to catch:
+
 ```bash
-git diff --name-only main...<branch> | grep -q '^src/' && TOUCHES_SRC=true || TOUCHES_SRC=false
+git diff --name-only main...<branch> | grep -qE '^(src/|package(-lock)?\.json$|\.github/workflows/|\.claude/(skills|agents)/)' \
+  && NEEDS_FULL_REVIEW=true || NEEDS_FULL_REVIEW=false
 ```
 
-If `TOUCHES_SRC=false` (no `src/` file in the diff — e.g. `.claude/`, `docs/`,
-config-only PRs), set `REVIEWER_COUNT=1` and dispatch **only `round_1`** in
-Step 3. Three cloud models × zero yield is the confirmed steady state for
-these diffs (PRs #75, #87, #89, #90 — 0 findings × 3 reviewers, every time).
-Mixed diffs (`src/` *and* `.claude/` in the same PR) still get the full
-3-reviewer dispatch — this gate is binary on `src/` presence, not diff size
-or file count.
+If `NEEDS_FULL_REVIEW=false` (none of the above matched — e.g. `docs/`,
+`context-essentials.md`, `_patterns/`, README-only PRs), set
+`REVIEWER_COUNT=1` and dispatch **only `round_1`** in Step 3. Three cloud
+models × zero yield has been the observed steady state for these diffs (PRs
+#75, #87, #89, #90 — 0 findings × 3 reviewers, every time), and the blast
+radius of a doc-only mistake is low enough that a single reviewer plus the
+arbiter's independent scan is adequate.
 
-If `TOUCHES_SRC=true`, set `REVIEWER_COUNT=3` (the existing behavior, unchanged).
+If `NEEDS_FULL_REVIEW=true`, set `REVIEWER_COUNT=3` (the existing behavior,
+unchanged) — this includes mixed diffs (e.g. `src/` *and* `.claude/` in the
+same PR) and PRs that edit this skill's own files.
 
 `REVIEWER_COUNT` drives which models Step 3 calls and what Step 6's PR
 comment reports.
@@ -161,7 +173,7 @@ Build the review prompt combining the baseline diff with instructions:
 Send the prompt to each reviewer model via `ollama-review.sh`. The number of
 models called depends on `REVIEWER_COUNT` from Step 1.5:
 
-**`REVIEWER_COUNT=3`** (diff touches `src/` — default, unchanged behavior):
+**`REVIEWER_COUNT=3`** (diff touches a security-relevant surface — default, unchanged behavior):
 ```bash
 PROMPT="<diff + instructions>"
 
@@ -170,7 +182,7 @@ R2=$(echo "$PROMPT" | bash .claude/skills/fix-review/ollama-review.sh <round_2_m
 R3=$(echo "$PROMPT" | bash .claude/skills/fix-review/ollama-review.sh <round_3_model>)
 ```
 
-**`REVIEWER_COUNT=1`** (no `src/` in diff):
+**`REVIEWER_COUNT=1`** (no security-relevant surface touched):
 ```bash
 PROMPT="<diff + instructions>"
 
@@ -249,8 +261,9 @@ Arbiter: Claude Sonnet 4.6
 </details>
 ```
 
-For a `REVIEWER_COUNT=1` pass (no `src/` in diff), the `Models:` line lists
-only `<round_1_model>`, and vote counts read `N/1` instead of `N/3`.
+For a `REVIEWER_COUNT=1` pass (no security-relevant surface touched), the
+`Models:` line lists only `<round_1_model>`, and vote counts read `N/1`
+instead of `N/3`.
 
 ### 7. Merge decision
 
