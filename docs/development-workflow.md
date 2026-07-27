@@ -186,7 +186,7 @@ Produces RFC 2119-compliant GitHub issue draft text (does not create the issue d
 
 **When invoked:** when a GitHub Actions workflow needs to be created or modified; when CI fails due to workflow configuration.
 
-Only modifies `.github/workflows/`. Uses `npm ci`, Node 20, concurrency cancellation. Should include a `npm test` step (Vitest suite).
+Only modifies `.github/workflows/`. Uses `npm ci`, Node 22, concurrency cancellation. Should include a `npm test` step (Vitest suite).
 
 ### `test-generator` — Generate colocated tests
 

@@ -57,7 +57,7 @@ Server-Sent Events deliberation stream.
 
 ## Prerequisites
 
-- Node.js ≥20.19
+- Node.js ≥22
 - The Go backend running on port 8001 (see
   [`vmm-rada`](https://github.com/valpere/vmm-rada))
 
