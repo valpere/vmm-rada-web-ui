@@ -4,7 +4,7 @@ description: Multi-model PR review pipeline. Dispatches the diff concurrently to
 user-invocable: true
 argument-hint: "[pr-number]"
 metadata:
-  version: "2.1.0"
+  version: "2.2.0"
   domain: code-review
   scope: quality-gate
   debt-level: balanced
@@ -167,20 +167,60 @@ If `TIER="cli"` for any reason → use CLI failover tier (`reviewers.cli`).
 
 ### 3. Concurrent review dispatch
 
-Build the review prompt combining the baseline diff with instructions:
+Build the review prompt combining the baseline diff with instructions. The
+prompt opens with an immutable **Project facts** block so reviewers stop
+asserting verifiable facts — this was the source of 6 of 14 dismissed
+findings in the 2026-W30 dreaming corpus ("project has no test suite",
+"Vite 7→8 possibly unverified", "future date 2026-07-07" 13 days past,
+etc.).
 
-> "Review this PR diff. Return ONLY a raw JSON array of findings — no prose, no markdown
-> fences. Each finding: `{\"file\": \"path\", \"line\": N, \"layer\": 1-5, \"severity\":
-> \"error|warn|sugg\", \"description\": \"...\"}`. Flag only real issues per the Code
-> Review Pyramid. Layer 5 (style) is never flagged."
+The current date is injected at run time via `date -u +%Y-%m-%d` rather than
+hardcoded — the skill is read once and reused across many sessions, so
+hardcoding would itself become a fabricated-fact source. Version facts use
+"current major" wording so the block survives Vite 9 / React 20 without a
+follow-up edit. Total preamble stays under ~1k tokens — token budget
+matters for `qwen3.5:cloud`, which has been observed to return empty
+content on large prompts (see `ollama-review.sh:18-21`).
+
+```bash
+# Project facts block (~6 bullets, ≤1k tokens). Keep terse — do not add examples.
+PROJECT_FACTS=$(cat <<'EOF'
+## Project facts (immutable, do not contradict)
+- Plain JavaScript project. NO TypeScript anywhere (banned project-wide).
+- Vitest is present (`npm test`). A test suite exists and runs in CI.
+- React 19 + Vite 8 (current majors). Exact versions: see package.json.
+- Today's date is $(date -u +%Y-%m-%d). Do not flag a date as "future" unless it is after this.
+- .claude/** files are agent/Claude Code instructions, not runtime code.
+- Layer-1 immutable rules (from .claude/context-essentials.md):
+  (1) components are pure UI — no fetch/api.js calls in any component;
+  (2) src/api.js is the sole adapter boundary — onEvent(type, event) is the only interface App.jsx sees;
+  (3) App.jsx owns all state via setCurrentConversation;
+  (4) react-markdown is the only renderer for LLM output — no raw HTML.
+EOF
+)
+
+INSTRUCTIONS='Review the PR diff below. Return ONLY a raw JSON array of
+findings — no prose, no markdown fences. Each finding:
+{"file":"path","line":N,"layer":1-4,"severity":"error|warn|sugg","description":"..."}.
+
+Do NOT flag unless you can cite a concrete defect in the diff above. Layer 5
+(style) is never flagged. The Code Review Pyramid (see header) is the only
+arbiter — do not invent project facts not in the Project facts block above.'
+
+# PROMPT is what gets piped to ollama-review.sh:diff + project facts + instructions.
+PROMPT="${PROJECT_FACTS}
+
+${INSTRUCTIONS}
+
+--- DIFF ---
+$(cat baseline.diff)"
+```
 
 Send the prompt to each reviewer model via `ollama-review.sh`. The number of
 models called depends on `REVIEWER_COUNT` from Step 1.5:
 
 **`REVIEWER_COUNT=3`** (diff touches a security-relevant surface — default, unchanged behavior):
 ```bash
-PROMPT="<diff + instructions>"
-
 R1=$(echo "$PROMPT" | bash .claude/skills/fix-review/ollama-review.sh <round_1_model>)
 R2=$(echo "$PROMPT" | bash .claude/skills/fix-review/ollama-review.sh <round_2_model>)
 R3=$(echo "$PROMPT" | bash .claude/skills/fix-review/ollama-review.sh <round_3_model>)
@@ -188,14 +228,14 @@ R3=$(echo "$PROMPT" | bash .claude/skills/fix-review/ollama-review.sh <round_3_m
 
 **`REVIEWER_COUNT=1`** (no security-relevant surface touched):
 ```bash
-PROMPT="<diff + instructions>"
-
 R1=$(echo "$PROMPT" | bash .claude/skills/fix-review/ollama-review.sh <round_1_model>)
 ```
 Skip R2/R3 entirely — do not call them, and treat their findings as absent
 (not as empty-array votes) when tallying.
 
 Each call returns a JSON array (empty `[]` on parse failure — safe degradation).
+The JSON output contract (raw array, `file/line/layer/severity/description`)
+is preserved — the project-facts block changes input context, not parse contract.
 
 ### 4. Tally findings
 
