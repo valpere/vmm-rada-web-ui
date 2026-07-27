@@ -206,6 +206,13 @@ content lives in the strategy-specific `metadata` field, not per-reviewer.
 An unrecognised `kind` renders via a fallback view
 (`Stage 2 — kind: <X> (view not implemented yet)`) rather than crashing.
 
+**`role_stub` is the one exception to "content lives in `metadata`."** RoleBased
+skips Stage 2 entirely — there is no strategy-specific metadata to show. The
+frontend's `RoleView` instead re-displays `stage1` (already present on the
+message) inside the Stage 2 slot, using each result's `label` directly as the
+role name (Generator/Critic/Verifier/Simplifier) — no `label_to_model` lookup,
+since role names aren't anonymised the way PeerReview's labels are.
+
 The frontend UI does not currently expose strategy selection — it always
 sends `council_type: "default"`. Which strategy that resolves to (and thus
 which `kind` you'll actually see) is decided by backend configuration. See

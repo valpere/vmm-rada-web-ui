@@ -494,6 +494,55 @@
   overflow: hidden;
 }
 
+/* Role view (RoleBased strategy) — one row per role, labeled by role name */
+
+.role-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.role-row {
+  padding: 10px 12px;
+  background: var(--bg-base);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--accent);
+}
+
+.role-row-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.role-row-label {
+  font-family: monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.role-row-model {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: monospace;
+}
+
+.role-row-content {
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.role-row-content.collapsed {
+  max-height: 4em;
+  overflow: hidden;
+}
+
 /* Delphi view (Delphi strategy) — per-round rating timeline */
 
 .delphi-timeline {

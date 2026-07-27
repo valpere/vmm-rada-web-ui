@@ -628,27 +628,71 @@ function DelphiView({ delphi, isLoading }) {
   );
 }
 
-// RoleStubView renders a minimal placeholder for the RoleBased strategy,
-// where Stage 2 has no peer-ranking content (roles are complementary).
-function RoleStubView({ isLoading }) {
-  if (isLoading) {
+// RoleView renders the RoleBased strategy's Stage 2 slot. RoleBased has no
+// peer-ranking round (backend: internal/council/rolebased.go runRoleBased —
+// "Stage 2 is skipped; a minimal Stage2CompleteData event is emitted for SSE
+// compatibility"), so there is no strategy-specific metadata to show here.
+// The per-role content lives entirely in `stage1`, where `label` is the role
+// name (Generator/Critic/Verifier/Simplifier) rather than an anonymised
+// "Response A" — no de-anonymisation lookup needed, unlike PeerRankingView.
+// Re-displaying stage1 content inside the Stage 2 slot mirrors MoaView's
+// "Layer 1 — Proposers" panel, which does the same for MixtureOfAgents.
+function RoleRow({ result }) {
+  const [expanded, setExpanded] = useState(false);
+  const longText = (result?.content ?? '').length > REPRESENTATIVE_TRUNCATE_THRESHOLD;
+  return (
+    <div className="role-row">
+      <div className="role-row-header">
+        <span className="role-row-label">{result.label}</span>
+        <span className="role-row-model">{modelShortName(result.model)}</span>
+      </div>
+      <div className={`role-row-content markdown-content${longText && !expanded ? ' collapsed' : ''}`}>
+        <Markdown>{result.content}</Markdown>
+      </div>
+      {longText && (
+        <button
+          type="button"
+          className="vote-expand-btn"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+        >
+          {expanded ? 'Show less' : 'Show full answer'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function RoleView({ stage1, isLoading }) {
+  const roles = Array.isArray(stage1) ? stage1 : [];
+
+  if (isLoading && roles.length === 0) {
     return (
       <div className="stage stage2">
         <div className="stage-accordion" aria-disabled="true">
           <span className="stage-accordion-label">
             <span className="spinner-sm" />
-            Stage 2…
+            Roles working…
           </span>
         </div>
       </div>
     );
   }
+  if (roles.length === 0) return null;
+
   return (
     <div className="stage stage2">
       <div className="stage-accordion" aria-disabled="true">
         <span className="stage-accordion-label">
-          Stage 2: roles are complementary — no peer ranking.
+          Stage 2: Role Perspectives ({roles.length} role{roles.length !== 1 ? 's' : ''})
         </span>
+      </div>
+      <div className="stage-body">
+        <div className="role-list">
+          {roles.map((r, i) => (
+            <RoleRow key={`${r?.label ?? i}-${i}`} result={r} />
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -706,7 +750,7 @@ export default function Stage2({
         />
       );
     case 'role_stub':
-      return <RoleStubView isLoading={isLoading} />;
+      return <RoleView stage1={stage1} isLoading={isLoading} />;
     case 'vote_tally':
       return <VoteTallyView voteTally={voteTally} isLoading={isLoading} />;
     case 'rank_refine':

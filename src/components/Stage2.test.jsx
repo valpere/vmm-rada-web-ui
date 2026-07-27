@@ -1,5 +1,5 @@
-// Tests for Stage2.jsx — the dispatcher routes by `kind` to one of three
-// sub-renderers (PeerRankingView, RoleStubView, UnknownKindView). These tests
+// Tests for Stage2.jsx — the dispatcher routes by `kind` to one of several
+// sub-renderers (PeerRankingView, RoleView, UnknownKindView, ...). These tests
 // drive each branch without mounting the rest of App.
 
 import { render, screen } from '@testing-library/react';
@@ -25,14 +25,6 @@ describe('Stage2 dispatcher', () => {
     // Peer-ranking view renders the strong-consensus pill.
     expect(screen.getByText(/Stage 2: Peer Rankings/i)).toBeInTheDocument();
     expect(screen.getByText(/W=0.80/i)).toBeInTheDocument();
-  });
-
-  it('routes kind="role_stub" to the role-stub view', () => {
-    render(<Stage2 kind="role_stub" isLoading={false} />);
-    expect(
-      screen.getByText(/roles are complementary — no peer ranking/i),
-    ).toBeInTheDocument();
-    expect(screen.queryByText(/Stage 2: Peer Rankings/i)).not.toBeInTheDocument();
   });
 
   it('routes an unknown kind to the unknown-kind view, surfacing the kind name', () => {
@@ -416,6 +408,61 @@ describe('Stage2 dispatcher', () => {
           kind="moa_aggregator"
           moaAggregator={aggregator}
           stage1={[{ label: 'Response A', content: 'short' }]}
+          isLoading={false}
+        />,
+      );
+      expect(screen.getByRole('button', { name: /Show full answer/i })).toBeInTheDocument();
+    });
+  });
+
+  describe('RoleView (kind="role_stub")', () => {
+    const fourRoles = [
+      { label: 'Generator', model: 'openai/gpt-4o', content: 'generator answer' },
+      { label: 'Critic', model: 'anthropic/claude-sonnet-4-5', content: 'critic answer' },
+      { label: 'Verifier', model: 'openai/gpt-4o', content: 'verifier answer' },
+      { label: 'Simplifier', model: 'anthropic/claude-sonnet-4-5', content: 'simplifier answer' },
+    ];
+
+    it('renders one row per role with role name, model, and content', () => {
+      render(<Stage2 kind="role_stub" stage1={fourRoles} isLoading={false} />);
+      expect(screen.getByText(/Stage 2: Role Perspectives \(4 roles\)/i)).toBeInTheDocument();
+      for (const role of ['Generator', 'Critic', 'Verifier', 'Simplifier']) {
+        expect(screen.getByText(role)).toBeInTheDocument();
+      }
+      for (const answer of ['generator answer', 'critic answer', 'verifier answer', 'simplifier answer']) {
+        expect(screen.getByText(answer)).toBeInTheDocument();
+      }
+      expect(screen.queryByText(/Stage 2: Peer Rankings/i)).not.toBeInTheDocument();
+    });
+
+    it('renders a singular "role" label when only one role is present', () => {
+      render(
+        <Stage2
+          kind="role_stub"
+          stage1={[{ label: 'Generator', model: 'openai/gpt-4o', content: 'solo answer' }]}
+          isLoading={false}
+        />,
+      );
+      expect(screen.getByText(/Stage 2: Role Perspectives \(1 role\)/i)).toBeInTheDocument();
+    });
+
+    it('shows a loading state before any stage1 results have arrived', () => {
+      render(<Stage2 kind="role_stub" stage1={[]} isLoading={true} />);
+      expect(screen.getByText(/Roles working…/i)).toBeInTheDocument();
+    });
+
+    it('renders nothing when not loading and stage1 is empty', () => {
+      const { container } = render(<Stage2 kind="role_stub" stage1={[]} isLoading={false} />);
+      expect(container).toBeEmptyDOMElement();
+    });
+
+    it('truncates long role content with a Show full answer button', () => {
+      const longText =
+        'A long role answer that exceeds the truncation threshold so the dispatcher exposes a Show full answer button — '.repeat(2);
+      render(
+        <Stage2
+          kind="role_stub"
+          stage1={[{ label: 'Generator', model: 'openai/gpt-4o', content: longText }]}
           isLoading={false}
         />,
       );
