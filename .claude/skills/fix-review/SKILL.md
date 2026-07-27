@@ -4,7 +4,7 @@ description: Multi-model PR review pipeline. Dispatches the diff concurrently to
 user-invocable: true
 argument-hint: "[pr-number]"
 metadata:
-  version: "2.0.0"
+  version: "2.1.0"
   domain: code-review
   scope: quality-gate
   debt-level: balanced
@@ -42,12 +42,17 @@ triage, not this pipeline.
 ## Pipeline
 
 ```
-Concurrent dispatch (config.yaml reviewers.openrouter.*):
+Diff-shape gate: does the diff touch src/?
+  yes → REVIEWER_COUNT=3 (full dispatch, below)
+  no  → REVIEWER_COUNT=1 (round_1 only — non-src/ diffs yield 0 findings
+                           × 3 reviewers every time observed so far)
+       ↓
+Concurrent dispatch (config.yaml reviewers.openrouter.*, REVIEWER_COUNT of them):
   Reviewer model 1 (round_1) ──┐
-  Reviewer model 2 (round_2) ──┼──→ JSON findings arrays
+  Reviewer model 2 (round_2) ──┼──→ JSON findings arrays   (3-reviewer path only)
   Reviewer model 3 (round_3) ──┘
        ↓
-  Vote tally: group by file:line, attach count N/3 (informational only)
+  Vote tally: group by file:line, attach count N/REVIEWER_COUNT (informational only)
   All findings reach the arbiter — votes do not gate
        ↓
   Arbiter (Claude, main instance)
@@ -84,6 +89,26 @@ gh pr diff $PR
 ```
 
 Store it as the **baseline diff** (used in dispatch and arbiter pass).
+
+### 1.5. Diff-shape gate
+
+Check whether the diff touches `src/`:
+```bash
+git diff --name-only main...<branch> | grep -q '^src/' && TOUCHES_SRC=true || TOUCHES_SRC=false
+```
+
+If `TOUCHES_SRC=false` (no `src/` file in the diff — e.g. `.claude/`, `docs/`,
+config-only PRs), set `REVIEWER_COUNT=1` and dispatch **only `round_1`** in
+Step 3. Three cloud models × zero yield is the confirmed steady state for
+these diffs (PRs #75, #87, #89, #90 — 0 findings × 3 reviewers, every time).
+Mixed diffs (`src/` *and* `.claude/` in the same PR) still get the full
+3-reviewer dispatch — this gate is binary on `src/` presence, not diff size
+or file count.
+
+If `TOUCHES_SRC=true`, set `REVIEWER_COUNT=3` (the existing behavior, unchanged).
+
+`REVIEWER_COUNT` drives which models Step 3 calls and what Step 6's PR
+comment reports.
 
 ### 2. Load reviewer config
 
@@ -133,8 +158,10 @@ Build the review prompt combining the baseline diff with instructions:
 > \"error|warn|sugg\", \"description\": \"...\"}`. Flag only real issues per the Code
 > Review Pyramid. Layer 5 (style) is never flagged."
 
-Send the prompt to each reviewer model via `ollama-review.sh`:
+Send the prompt to each reviewer model via `ollama-review.sh`. The number of
+models called depends on `REVIEWER_COUNT` from Step 1.5:
 
+**`REVIEWER_COUNT=3`** (diff touches `src/` — default, unchanged behavior):
 ```bash
 PROMPT="<diff + instructions>"
 
@@ -143,16 +170,28 @@ R2=$(echo "$PROMPT" | bash .claude/skills/fix-review/ollama-review.sh <round_2_m
 R3=$(echo "$PROMPT" | bash .claude/skills/fix-review/ollama-review.sh <round_3_model>)
 ```
 
+**`REVIEWER_COUNT=1`** (no `src/` in diff):
+```bash
+PROMPT="<diff + instructions>"
+
+R1=$(echo "$PROMPT" | bash .claude/skills/fix-review/ollama-review.sh <round_1_model>)
+```
+Skip R2/R3 entirely — do not call them, and treat their findings as absent
+(not as empty-array votes) when tallying.
+
 Each call returns a JSON array (empty `[]` on parse failure — safe degradation).
 
 ### 4. Tally findings
 
-Merge all three arrays. Group findings by `file:line`. For each unique `file:line`,
-count how many of the 3 models flagged it.
+Merge all called reviewers' arrays (1 or 3, per `REVIEWER_COUNT`). Group findings
+by `file:line`. For each unique `file:line`, count how many of the dispatched
+models flagged it.
 
-Attach `votes: N/3` to each finding as **informational metadata only**. All findings
-(even `votes: 1/3`) are passed to the arbiter — vote counts are a confidence signal,
-not a gate. The arbiter's dismiss rate (~80%) is the actual filter.
+Attach `votes: N/REVIEWER_COUNT` to each finding as **informational metadata
+only** (e.g. `1/3` when `REVIEWER_COUNT=3`, `1/1` when `REVIEWER_COUNT=1`). All
+findings are passed to the arbiter regardless of vote count — votes are a
+confidence signal, not a gate. The arbiter's dismiss rate (~80%) is the actual
+filter.
 
 ### 5. Arbiter pass (Claude, main instance)
 
@@ -191,7 +230,9 @@ gh issue create --title "..." --body "..."
 
 ### 6. Post PR comment
 
-Post a single collapsible summary:
+Post a single collapsible summary. The `Models:` line lists only the models
+actually dispatched (per `REVIEWER_COUNT` from Step 1.5) — never claim three
+reviewers ran when only `round_1` was called:
 
 ```
 <details>
@@ -207,6 +248,9 @@ Arbiter: Claude Sonnet 4.6
 
 </details>
 ```
+
+For a `REVIEWER_COUNT=1` pass (no `src/` in diff), the `Models:` line lists
+only `<round_1_model>`, and vote counts read `N/1` instead of `N/3`.
 
 ### 7. Merge decision
 
