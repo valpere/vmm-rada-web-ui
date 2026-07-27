@@ -9,6 +9,8 @@ Approaches that keep failing or are explicitly banned. When about to try one —
 - ❌ State writes outside `App.jsx`
 - ❌ TypeScript (plain JS project by design)
 - ❌ Commits skipping pre-commit hooks unless user explicitly requests
+- ❌ XSS-safety assertions via raw `innerHTML` string matching — use
+  `container.querySelector('script') === null` instead (PR #56 finding)
 
 ## Learned (auto-promoted)
 

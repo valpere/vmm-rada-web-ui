@@ -59,3 +59,5 @@ contract and require Tech Lead override.
 - No state writes outside `App.jsx`.
 - No TypeScript.
 - No commits skipping pre-commit hooks unless user explicitly requests.
+- No XSS-safety assertions via raw `innerHTML` string matching — use
+  `container.querySelector('script') === null` instead.
