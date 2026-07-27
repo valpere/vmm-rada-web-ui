@@ -43,7 +43,8 @@ triage, not this pipeline.
 
 ```
 Diff-shape gate: does the diff touch src/, package(-lock).json,
-.github/workflows/, or .claude/{skills,agents}/?
+vite.config.js, eslint.config.js, .github/workflows/, or
+.claude/{skills,agents}/?
   yes → REVIEWER_COUNT=3 (full dispatch, below)
   no  → REVIEWER_COUNT=1 (round_1 only — diffs outside all of the above
                            yield 0 findings × 3 reviewers every time observed
@@ -95,15 +96,18 @@ Store it as the **baseline diff** (used in dispatch and arbiter pass).
 ### 1.5. Diff-shape gate
 
 Check whether the diff touches any **security-relevant surface** — not just
-`src/`. Supply-chain files (`package.json`, `package-lock.json`), CI workflow
-files (`.github/workflows/`), and prompt/agent-behavior files
-(`.claude/skills/`, `.claude/agents/`) all warrant full scrutiny even when
-`src/` itself is untouched — a compromised dependency pin, a malicious CI
-step, or an edited agent prompt (including edits to *this skill*) are exactly
-the kind of change three independent reviewers exist to catch:
+`src/`. Supply-chain files (`package.json`, `package-lock.json`), build/lint
+toolchain configs (`vite.config.js`, `eslint.config.js` — a tampered build
+config can inject code into production output; a tampered lint config can
+silently disable security-relevant rules), CI workflow files
+(`.github/workflows/`), and prompt/agent-behavior files (`.claude/skills/`,
+`.claude/agents/`) all warrant full scrutiny even when `src/` itself is
+untouched — a compromised dependency pin, a malicious CI step, or an edited
+agent prompt (including edits to *this skill*) are exactly the kind of
+change three independent reviewers exist to catch:
 
 ```bash
-git diff --name-only main...<branch> | grep -qE '^(src/|package(-lock)?\.json$|\.github/workflows/|\.claude/(skills|agents)/)' \
+git diff --name-only main...<branch> | grep -qE '^(src/|package(-lock)?\.json$|vite\.config\.js$|eslint\.config\.js$|\.github/workflows/|\.claude/(skills|agents)/)' \
   && NEEDS_FULL_REVIEW=true || NEEDS_FULL_REVIEW=false
 ```
 
