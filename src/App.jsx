@@ -6,13 +6,14 @@ import './App.css';
 
 // isConversationClosedError reports whether an error thrown from the API
 // adapter indicates the conversation was closed before this request finished.
-// Backend (vmm-rada@0aa5178, PR #310) returns 409 with `code: ErrConversationClosed`
-// for clarification round-N answers on a closed conversation. We also accept
-// the kebab-case form some intermediate layers emit.
+// `error.code` is derived client-side in src/api.js from the backend's exact
+// message string ("conversation is closed") — the backend has no wire-level
+// code field. A prior version of this check accepted any 409 as
+// conversation-closed, which misclassified the two other real 409 causes
+// (no pending clarification round; round already answered) as closure too.
 function isConversationClosedError(err) {
   if (!(err instanceof ApiError)) return false;
-  if (err.status !== 409) return false;
-  return err.code === 'ErrConversationClosed' || err.code === 'conversation_closed';
+  return err.status === 409 && err.code === 'conversation_closed';
 }
 
 // Derives the Stage2 dispatcher's `kind` value from a replayed message's

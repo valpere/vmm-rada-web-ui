@@ -162,13 +162,15 @@ integrations.
 **Errors:** `400` (invalid body/UUID), `404` (not found), `409`, `503` (quorum
 not met), `500`. **409 has three distinct causes, discriminated only by the
 `error` message string — there is no `code` field on the wire (verified
-against backend source; a prior version of this doc claimed one existed —
-see gh#95):**
-| `error` message | Cause |
-|---|---|
-| `"conversation is closed"` | Message/answers sent to a closed conversation |
-| `"no pending clarification round"` | Round-N answers submitted with nothing pending |
-| `"clarification round already answered"` | Round-N answers submitted twice |
+against backend source; a prior version of this doc claimed one existed).**
+`src/api.js`'s `ApiError.code` is derived client-side from the message string
+(gh#95) — a nonexistent-code fallback previously misclassified the other two
+causes as conversation-closed:
+| `error` message (wire) | Frontend `ApiError.code` | Cause |
+|---|---|---|
+| `"conversation is closed"` | `conversation_closed` | Message/answers sent to a closed conversation |
+| `"no pending clarification round"` | `no_pending_clarification_round` | Round-N answers submitted with nothing pending |
+| `"clarification round already answered"` | `clarification_round_already_answered` | Round-N answers submitted twice |
 
 ---
 
