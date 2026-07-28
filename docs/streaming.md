@@ -23,9 +23,9 @@ writes to the wire. **A prior version of this doc additionally listed
 events — none of them are ever emitted.** `stage0_done` is generated
 internally by the council runner but explicitly swallowed by the handler
 before reaching the client; the three `*_start` events never existed in the
-handler at all. See gh#96 for the frontend bug this produced (Stage 2/3
-loading spinners never render, since they only ever flip on via the
-non-existent `stage2_start`/`stage3_start`).
+handler at all. `App.jsx` no longer registers handlers for any of the four
+(gh#96) — Stage 2/3 loading now derives from the prior stage's `*_complete`
+event instead of waiting for a `*_start` event that was never coming.
 
 ```
 data: {"type":"stage0_round_complete", ...}   ← optional, stream CLOSES here
@@ -247,22 +247,19 @@ while (true) {
 ```
 
 `App.jsx`'s `makeStreamHandlers` maps each `eventType` to a state update.
-**Rows marked `[dead]` register a handler for an event the backend never
-sends** (see the Event Sequence note above / gh#96) — harmless where the
-loading flag is already `true` from the message's initial state
-(`stage0_done`, `stage1_start`), a real gap where nothing else ever sets the
-flag (`stage2_start`, `stage3_start`):
+There are no handlers for `stage0_done`/`stage1_start`/`stage2_start`/
+`stage3_start` — the backend never sends them (see the Event Sequence note
+above). Stage 2/3 loading is derived from the *prior* stage's `*_complete`
+event instead of waiting for a `*_start` event that was never coming (fixed
+in gh#96 — previously `loading.stage2`/`loading.stage3` had no handler
+setting them `true` at all, so the Stage 2/3 spinners never rendered):
 
 | Event | State change |
 |-------|---------------|
 | `stage0_round_complete` | `msg.pendingClarification = event.data`, clears `loading.stage0`/`loading.stage1` |
-| `stage0_done` `[dead]` | clears `pendingClarification`, `loading.stage1 = true` |
-| `stage1_start` `[dead]` | `loading.stage1 = true` |
-| `stage1_complete` | `msg.stage1 = event.data`, `loading.stage1 = false` |
-| `stage2_start` `[dead — real gap, see gh#96]` | `loading.stage2 = true` |
+| `stage1_complete` | `msg.stage1 = event.data`, `loading.stage1 = false`, **`loading.stage2 = true`** (Stage 2 begins immediately, no `stage2_start` event exists) |
 | `stage2_round_complete` | appends into `msg.metadata.<debate\|delphi>.rounds`, sets `msg.stage2Kind` |
-| `stage2_complete` | `msg.stage2 = event.data`, `msg.stage2Kind = event.kind`, `msg.metadata = event.metadata`, `loading.stage2 = false` |
-| `stage3_start` `[dead — real gap, see gh#96]` | `loading.stage3 = true` |
+| `stage2_complete` | `msg.stage2 = event.data`, `msg.stage2Kind = event.kind`, `msg.metadata = event.metadata`, `loading.stage2 = false`, **`loading.stage3 = true`** (Stage 3 begins immediately, no `stage3_start` event exists) |
 | `stage3_complete` | `msg.stage3 = event.data`, `loading.stage3 = false`, marks conversation closed, reloads conversation list |
 | `title_complete` | reloads conversation list |
 | `complete` | reloads conversation list, `isLoading = false` |

@@ -236,17 +236,17 @@ function App() {
       });
       setIsLoading(false);
     },
-    stage0_done: () => updateLast((msg) => {
-      msg.pendingClarification = null;
-      msg.loading.stage0 = false;
-      msg.loading.stage1 = true;
-    }),
-    stage1_start: () => updateLast((msg) => { msg.loading.stage1 = true; }),
     stage1_complete: (event) => updateLast((msg) => {
       msg.stage1 = event.data;
       msg.loading.stage1 = false;
+      // The backend never emits a stage2_start event — Stage 2 begins
+      // immediately once Stage 1 completes (verified against handler.go's
+      // sendMessageStream). Flip the spinner here instead of waiting for an
+      // event that doesn't exist. stage2_complete always fires eventually,
+      // even for strategies that skip real Stage 2 work (RoleBased emits an
+      // immediate stub event), so this can't get stuck true.
+      msg.loading.stage2 = true;
     }),
-    stage2_start: () => updateLast((msg) => { msg.loading.stage2 = true; }),
     // Per-round events from multi-round strategies (MultiAgentDebate, Delphi).
     // Single source of truth per strategy: msg.metadata.<kind-pointer>.rounds.
     // Each event APPENDS its round's transcript subset to the running list;
@@ -263,8 +263,10 @@ function App() {
       // includes the canonical debate transcript (with dropouts) for replay.
       msg.metadata = event.metadata;
       msg.loading.stage2 = false;
+      // Same reasoning as stage1_complete above — no stage3_start event
+      // exists; Stage 3 (Chairman synthesis) begins immediately.
+      msg.loading.stage3 = true;
     }),
-    stage3_start: () => updateLast((msg) => { msg.loading.stage3 = true; }),
     stage3_complete: (event) => {
       updateLast((msg) => {
         msg.stage3 = event.data;
