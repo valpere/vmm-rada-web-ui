@@ -374,3 +374,175 @@ describe('409 ErrConversationClosed on handleAnswerSubmit', () => {
     );
   });
 });
+
+// ── deriveStage2Kind on replay (loadConversation) ───────────────────────────
+// AssistantMessage doesn't persist `kind` itself (confirmed against backend
+// source — see docs/api-contract.md). App.jsx must infer it from the
+// persisted stage2/metadata shape. Regression coverage for gh#94: a prior
+// implementation collapsed every non-default council_type to "peer_ranking"
+// on replay, mis-rendering 6 of 7 strategies after a page reload.
+
+describe('loadConversation derives stage2Kind from persisted shape', () => {
+  it('renders RoleView (not PeerRankingView) for a replayed role_stub conversation', async () => {
+    mockApi.listConversations.mockResolvedValue([
+      { id: 'conv-1', title: 'One', created_at: '2026-05-02T12:00:00Z' },
+    ]);
+    mockApi.getConversation.mockResolvedValue(
+      makeConversation({
+        messages: [
+          { role: 'user', content: 'hi' },
+          {
+            role: 'assistant',
+            stage1: [
+              { label: 'Creator', model: 'openai/gpt-4o', content: 'creator answer' },
+              { label: 'Critic', model: 'anthropic/claude-sonnet-4-5', content: 'critic answer' },
+            ],
+            // role_stub: stage2 is always empty and metadata carries no
+            // strategy-specific sub-object — the same shape a naive
+            // council_type-name lookup can't distinguish from peer_ranking.
+            stage2: [],
+            stage3: { content: 'final', model: 'openai/gpt-4o' },
+            metadata: { council_type: 'role-based', aggregate_rankings: [], consensus_w: 1.0 },
+          },
+        ],
+      }),
+    );
+
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: /One/ }));
+
+    expect(await screen.findByText(/Stage 2: Role Perspectives/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Stage 2: Peer Rankings/i)).not.toBeInTheDocument();
+  });
+
+  it('renders PeerRankingView for a replayed peer_ranking conversation (non-empty stage2)', async () => {
+    mockApi.listConversations.mockResolvedValue([
+      { id: 'conv-1', title: 'One', created_at: '2026-05-02T12:00:00Z' },
+    ]);
+    mockApi.getConversation.mockResolvedValue(
+      makeConversation({
+        messages: [
+          { role: 'user', content: 'hi' },
+          {
+            role: 'assistant',
+            stage1: [{ label: 'Response A', model: 'openai/gpt-4o', content: 'answer a' }],
+            stage2: [{ reviewer_label: 'Response A', rankings: ['Response A'] }],
+            stage3: { content: 'final', model: 'openai/gpt-4o' },
+            metadata: {
+              council_type: 'default',
+              label_to_model: { 'Response A': 'openai/gpt-4o' },
+              aggregate_rankings: [{ model: 'openai/gpt-4o', score: 1.0 }],
+              consensus_w: 1.0,
+            },
+          },
+        ],
+      }),
+    );
+
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: /One/ }));
+
+    expect(await screen.findByText(/Stage 2: Peer Rankings/i)).toBeInTheDocument();
+  });
+
+  it('renders VoteTallyView for a replayed custom-named Majority registration', async () => {
+    // Regression guard for the specific gap gh#94 was filed about: a
+    // council_type *name* lookup breaks on custom-named registrations
+    // sharing a strategy (backend docs example: "factual-majority" /
+    // "creative-majority" both Strategy: Majority). Shape inference doesn't
+    // care what the name is.
+    mockApi.listConversations.mockResolvedValue([
+      { id: 'conv-1', title: 'One', created_at: '2026-05-02T12:00:00Z' },
+    ]);
+    mockApi.getConversation.mockResolvedValue(
+      makeConversation({
+        messages: [
+          { role: 'user', content: 'hi' },
+          {
+            role: 'assistant',
+            stage1: [{ label: 'Response A', model: 'openai/gpt-4o', content: 'answer a' }],
+            stage2: [],
+            stage3: { content: 'final', model: 'openai/gpt-4o' },
+            metadata: {
+              council_type: 'factual-majority',
+              aggregate_rankings: [],
+              consensus_w: 0,
+              vote_tally: {
+                winner_label: 'Response A',
+                clusters: [{ members: ['Response A'], representative: 'answer a', votes: 1 }],
+              },
+            },
+          },
+        ],
+      }),
+    );
+
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: /One/ }));
+
+    expect(await screen.findByText(/Stage 2: Vote Tally/i)).toBeInTheDocument();
+  });
+
+  it('renders DebateView for a replayed MultiAgentDebate conversation', async () => {
+    mockApi.listConversations.mockResolvedValue([
+      { id: 'conv-1', title: 'One', created_at: '2026-05-02T12:00:00Z' },
+    ]);
+    mockApi.getConversation.mockResolvedValue(
+      makeConversation({
+        messages: [
+          { role: 'user', content: 'hi' },
+          {
+            role: 'assistant',
+            stage1: [{ label: 'Response A', model: 'openai/gpt-4o', content: 'answer a' }],
+            stage2: [],
+            stage3: { content: 'final', model: 'openai/gpt-4o' },
+            metadata: {
+              council_type: 'debate',
+              aggregate_rankings: [],
+              consensus_w: 0,
+              debate: {
+                rounds: [{ round: 1, revisions: [{ label: 'Response A', content: 'revision 1' }] }],
+                final_round: 1,
+              },
+            },
+          },
+        ],
+      }),
+    );
+
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: /One/ }));
+
+    expect(await screen.findByText(/Stage 2: Debate/i)).toBeInTheDocument();
+  });
+
+  it('falls back to peer_ranking when metadata is entirely absent (old-backend safety net)', async () => {
+    mockApi.listConversations.mockResolvedValue([
+      { id: 'conv-1', title: 'One', created_at: '2026-05-02T12:00:00Z' },
+    ]);
+    mockApi.getConversation.mockResolvedValue(
+      makeConversation({
+        messages: [
+          { role: 'user', content: 'hi' },
+          {
+            role: 'assistant',
+            stage1: [{ label: 'Response A', model: 'openai/gpt-4o', content: 'answer a' }],
+            stage2: [{ reviewer_label: 'Response A', rankings: ['Response A'] }],
+            stage3: { content: 'final', model: 'openai/gpt-4o' },
+            metadata: null,
+          },
+        ],
+      }),
+    );
+
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: /One/ }));
+
+    expect(await screen.findByText(/Stage 2: Peer Rankings/i)).toBeInTheDocument();
+  });
+});
