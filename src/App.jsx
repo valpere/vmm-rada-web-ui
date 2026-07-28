@@ -357,6 +357,20 @@ function App() {
 
     setIsLoading(true);
 
+    // Capture the current pendingClarification before the optimistic clear
+    // below, so a non-closed failure catch path can restore it — without this,
+    // a network blip or round-conflict 409 during answer submission would
+    // silently disappear the clarification UI with no error and no way to
+    // retry (the prior code claimed to restore it but never actually did,
+    // see gh#100).
+    let submittedClarification = null;
+    {
+      const last = currentConversation?.messages?.at(-1);
+      if (last?.role === 'assistant') {
+        submittedClarification = last.pendingClarification ?? null;
+      }
+    }
+
     const updateLast = (updater) =>
       setCurrentConversation((prev) => {
         const messages = [...prev.messages];
@@ -394,15 +408,20 @@ function App() {
           return { ...prev, messages, closed: true };
         });
       } else {
-        // Any other failure: restore the pendingClarification so the user can
-        // retry. The optimistic clearing we did above is reverted.
+        // Any other failure: actually restore the captured pendingClarification
+        // so the user can retry through the same UI (Stage 0's question text +
+        // answer textareas render again). The optimistic clearing we did above
+        // is reverted, AND the user's typed answers are preserved in the
+        // answer textareas (since they're already in the DOM, controlled by
+        // Stage0's internal draftAnswers state — the captured
+        // pendingClarification just makes Stage0 render again).
         setCurrentConversation((prev) => {
           if (!prev) return prev;
           const messages = [...prev.messages];
           const last = messages[messages.length - 1];
           if (last && last.role === 'assistant') {
-            last.error = null;
-            last.loading = { ...last.loading, stage1: false };
+            last.pendingClarification = submittedClarification;
+            last.loading = { ...last.loading, stage0: false, stage1: false, stage2: false, stage3: false };
           }
           return { ...prev, messages };
         });
