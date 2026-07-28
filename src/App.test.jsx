@@ -455,6 +455,71 @@ describe('409 handling on handleAnswerSubmit', () => {
       expect(screen.queryByText(/This conversation has been closed/i)).not.toBeInTheDocument();
     });
   });
+
+  it('restores pendingClarification on a non-closed 409 (gh#100 regression)', async () => {
+    // Prior to this fix, the non-closed catch branch's comment claimed to
+    // restore pendingClarification but the code never actually set it
+    // back — a network blip, a round-conflict 409 (other than
+    // conversation_closed), or any other error during answer submission
+    // would silently disappear the Stage 0 UI with no error and no way
+    // to retry. Now: pendingClarification is restored, Stage 0 renders
+    // again (question text + answer textareas).
+    mockApi.listConversations.mockResolvedValue([
+      { id: 'conv-1', title: 'One', created_at: '2026-05-02T12:00:00Z' },
+    ]);
+    mockApi.getConversation.mockResolvedValue(makeConversation());
+    mockApi.sendMessageStream
+      .mockImplementationOnce(
+        scriptedStream([
+          [
+            'stage0_round_complete',
+            { type: 'stage0_round_complete', data: { round: 1, questions: [{ id: 'q1', text: 'Which framework?' }] } },
+          ],
+        ]),
+      )
+      .mockRejectedValueOnce(
+        new ApiError({
+          code: 'clarification_round_already_answered',
+          status: 409,
+          message: 'clarification round already answered',
+        }),
+      );
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole('button', { name: /One/ }));
+
+    const input = await screen.findByPlaceholderText(/Ask a question/i);
+    await waitFor(() => expect(input).not.toBeDisabled());
+
+    await user.type(input, 'help me choose');
+    await user.click(screen.getByRole('button', { name: /Send/i }));
+
+    // Stage 0 renders the answer textarea + Submit/Skip buttons.
+    const answerTextarea = await screen.findByPlaceholderText(/Your answer/i);
+    await user.type(answerTextarea, 'react');
+    await user.click(screen.getByRole('button', { name: /Submit answers/i }));
+
+    // The bug: prior to the fix, the round-conflict 409 would clear
+    // pendingClarification optimistically, then fail to restore it —
+    // Stage 0's answer textarea would silently disappear (the
+    // `findByPlaceholderText` from earlier would never re-resolve, OR
+    // if the test waited, it would simply not be there). The fix:
+    // pendingClarification is captured before the optimistic clear, then
+    // restored in this catch branch — Stage 0 renders again with the
+    // captured question text. (The Ask-a-question input stays disabled
+    // by design while a clarification is pending — ChatInterface renders
+    // the answer-style placeholder to redirect the user to the
+    // clarification form. That is correct behavior, not a regression.)
+    expect(await screen.findByPlaceholderText(/Your answer/i)).toBeInTheDocument();
+    // The question text is restored too (not just the textarea surface).
+    expect(await screen.findByText(/Which framework\?/i)).toBeInTheDocument();
+    // The submit/skip buttons come back.
+    expect(screen.getByRole('button', { name: /Submit answers/i })).toBeInTheDocument();
+    // The conversation is NOT marked closed (this is a non-closed 409).
+    expect(screen.queryByText(/This conversation has been closed/i)).not.toBeInTheDocument();
+  });
 });
 
 // ── Stage 2/3 loading spinners (gh#96) ──────────────────────────────────────
