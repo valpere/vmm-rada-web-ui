@@ -83,15 +83,45 @@ gh pr view --json number,headRefName,state,author
 ```
 Confirm the PR is open. If `author.login == "dependabot[bot]"`, stop and
 tell the user to invoke the `dependabot-reviewer` agent instead — this
-skill is for human-authored PRs. Store the PR number as `$PR`.
+skill is for human-authored PRs. Store the PR number as `$PR`, then
+validate it's a plain integer before it gets interpolated into any git
+ref name in later steps:
+```bash
+[[ "$PR" =~ ^[0-9]+$ ]] || { echo "error: PR number must be numeric, got: $PR" >&2; exit 1; }
+```
 
 ### 1. Fetch the full diff
 
+`gh pr diff $PR` has been observed silently returning an `rtk`-compacted
+summary instead of the actual diff (PR #58) — no error, just a few lines
+that look plausible but aren't the real change. Use `git diff` against the
+real merge-base as the primary source; `gh pr diff` is only a fallback for
+sandboxes with no cloned `origin` remote or no fetch access to `pull/*/head`.
+
+This skill assumes PRs target `main`. If a PR ever targets another base
+branch, replace the hardcoded `main` below with the actual base from
+`gh pr view $PR --json baseRefName`.
+
 ```bash
-gh pr diff $PR
+git fetch origin "pull/$PR/head:pr-$PR"
+DIFF=$(git diff main...pr-$PR)
+TOUCHED=$(git diff --name-only main...pr-$PR)
+
+# Sanity check: a real diff for a PR that touched files should never be
+# this short — catches the rtk-compacted-summary failure mode.
+if [ -n "$TOUCHED" ] && [ "$(printf '%s' "$DIFF" | wc -l)" -lt 50 ]; then
+  echo "warn: diff looks suspiciously short for the files touched — re-fetching" >&2
+  git fetch origin "pull/$PR/head:pr-$PR" --force
+  DIFF=$(git diff main...pr-$PR)
+fi
+
+# Fallback if the fetch above failed (no origin, no pull/*/head access):
+# DIFF=$(gh pr diff $PR)
+
+git branch -D "pr-$PR" 2>/dev/null || true
 ```
 
-Store it as the **baseline diff** (used in dispatch and arbiter pass).
+Store `$DIFF` as the **baseline diff** (used in dispatch and arbiter pass).
 
 ### 1.5. Diff-shape gate
 
@@ -251,9 +281,12 @@ filter.
 
 ### 5. Arbiter pass (Claude, main instance)
 
-Re-fetch the full diff post-dispatch (should be unchanged, but confirms branch state):
+Re-fetch the full diff post-dispatch (should be unchanged, but confirms branch state), using the same `git diff` primary / `gh pr diff` fallback path as Step 1:
 ```bash
-gh pr diff $PR
+git fetch origin "pull/$PR/head:pr-$PR"
+DIFF=$(git diff main...pr-$PR)
+git branch -D "pr-$PR" 2>/dev/null || true
+# Fallback: DIFF=$(gh pr diff $PR)
 ```
 
 For each finding (ordered Layer 1 first), apply the Code Review Pyramid:
