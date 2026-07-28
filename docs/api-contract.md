@@ -21,6 +21,12 @@ contain JSON payloads.
   replay — that claim was never true against current backend behavior. See
   gh#94 for the frontend bug this false assumption produced (`deriveStage2Kind`
   ignores the now-confirmed-present `metadata.council_type` on replay).
+  **Security note:** this means `label_to_model` (which model produced which
+  response) is retrievable indefinitely via `GET /api/conversations/{id}`,
+  not just during the live session — this project has no auth layer, so
+  anyone with network access to the backend can read it for any past
+  conversation. Flagging for awareness; whether that's an acceptable trade-off
+  is a backend/product decision, out of scope for this frontend-docs fix.
 - **Strategy is server-side configuration, not a client concern.** The same
   two endpoints (`/message`, `/message/stream`) serve all seven deliberation
   strategies. The frontend sends `council_type` (currently hardcoded to
