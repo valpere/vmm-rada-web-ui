@@ -41,6 +41,12 @@ contract and require Tech Lead override.
 - **`/fix-review`** runs parallel multi-model review (Ollama, see `config.yaml`)
   + Claude arbiter. **Not** Copilot-based — Copilot was dropped from the org
   workflow 2026-05-13; never wait for it.
+- **`/doubt-driven-development`** is the in-flight adversarial review gate for
+  non-trivial decisions (architectural choices, irreversible ops, security-
+  sensitive logic, unfamiliar code) **before they stand** — complementary to
+  `/fix-review` (post-hoc verdict on a finished artifact). Apply on
+  `/backlog` plans whose risks/blast-radius match the skill's "non-trivial"
+  list, not on mechanical edits.
 
 ## Docs discipline
 

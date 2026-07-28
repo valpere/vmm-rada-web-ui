@@ -106,6 +106,8 @@ Logs mistakes/wins to `_patterns/*.jsonl`; auto-promotes recurring patterns to h
 
 Spawns a fresh-context reviewer biased to disprove, not approve. Complements `/fix-review`, which is a post-hoc verdict.
 
+**Wired into the workflow gate** (between `tech-lead` approval and `code-generator` in the Feature implementation pipeline below) so non-trivial decisions are reviewed *before* code generation, while course-correction is still cheap — not just after the fact as `/fix-review` does. Skip only for mechanical edits where the risk/blast-radius doesn't match the skill's "non-trivial" criteria.
+
 ### `/session-end` — Write session summary
 
 **When to use:** manually, or let it auto-run on session Stop.
@@ -207,6 +209,8 @@ Human or /backlog
     ↓ plan + issue
 tech-lead (if architecture-sensitive)
     ↓ approval
+/doubt-driven-development (if non-trivial)     ← in-flight adversarial review,
+    ↓                                            course-correct while cheap
 code-generator
     ↓ implementation + lint
 ┌──────────────────────────────┐  ← parallel
