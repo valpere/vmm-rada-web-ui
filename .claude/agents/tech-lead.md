@@ -146,7 +146,7 @@ Prevent and reject:
 You sit between planning and implementation:
 
 ```
-/plan skill → Tech Lead (YOU) → implementation (main thread / bug-fixer / code-simplifier) → /find-bugs → /ship
+/backlog skill → Tech Lead (YOU) → implementation (main thread / bug-fixer / code-simplifier) → /find-bugs → /ship
 ```
 
 Your coordination responsibilities:
