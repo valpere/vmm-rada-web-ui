@@ -375,6 +375,113 @@ describe('409 ErrConversationClosed on handleAnswerSubmit', () => {
   });
 });
 
+// ── Stage 2/3 loading spinners (gh#96) ──────────────────────────────────────
+// The backend never emits stage2_start/stage3_start (verified against
+// handler.go). Prior to this fix, loading.stage2/loading.stage3 had no
+// handler ever setting them true, so the Stage 2 and Stage 3 spinners never
+// rendered — content just popped in abruptly on *_complete. Regression
+// coverage: assert the spinners actually appear, derived from the prior
+// stage's *_complete event.
+
+describe('Stage 2/3 loading spinners derived from prior stage completion', () => {
+  it('shows the Stage 2 spinner immediately after stage1_complete', async () => {
+    mockApi.listConversations.mockResolvedValue([
+      { id: 'conv-1', title: 'One', created_at: '2026-05-02T12:00:00Z' },
+    ]);
+    mockApi.getConversation.mockResolvedValue(makeConversation());
+    mockApi.sendMessageStream.mockImplementation(
+      scriptedStream([
+        ['stage1_complete', { type: 'stage1_complete', data: [{ label: 'Response A', model: 'openai/gpt-4o', content: 'a' }] }],
+      ]),
+    );
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole('button', { name: /One/ }));
+    const input = await screen.findByPlaceholderText(/Ask a question/i);
+    await waitFor(() => expect(input).not.toBeDisabled());
+
+    await user.type(input, 'hello');
+    await user.click(screen.getByRole('button', { name: /Send/i }));
+
+    // Stage2 defaults to the peer_ranking spinner until a kind arrives.
+    expect(await screen.findByText(/Running peer rankings…/i)).toBeInTheDocument();
+  });
+
+  it('clears the Stage 2 spinner and shows the Stage 3 spinner after stage2_complete', async () => {
+    mockApi.listConversations.mockResolvedValue([
+      { id: 'conv-1', title: 'One', created_at: '2026-05-02T12:00:00Z' },
+    ]);
+    mockApi.getConversation.mockResolvedValue(makeConversation());
+    mockApi.sendMessageStream.mockImplementation(
+      scriptedStream([
+        ['stage1_complete', { type: 'stage1_complete', data: [{ label: 'Response A', model: 'openai/gpt-4o', content: 'a' }] }],
+        [
+          'stage2_complete',
+          {
+            type: 'stage2_complete',
+            kind: 'peer_ranking',
+            data: [{ reviewer_label: 'Response A', rankings: ['Response A'] }],
+            metadata: { label_to_model: { 'Response A': 'openai/gpt-4o' }, aggregate_rankings: [], consensus_w: 1 },
+          },
+        ],
+      ]),
+    );
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole('button', { name: /One/ }));
+    const input = await screen.findByPlaceholderText(/Ask a question/i);
+    await waitFor(() => expect(input).not.toBeDisabled());
+
+    await user.type(input, 'hello');
+    await user.click(screen.getByRole('button', { name: /Send/i }));
+
+    expect(await screen.findByText(/Synthesising final answer/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Running peer rankings…/i)).not.toBeInTheDocument();
+  });
+
+  it('clears the Stage 3 spinner after stage3_complete', async () => {
+    mockApi.listConversations.mockResolvedValue([
+      { id: 'conv-1', title: 'One', created_at: '2026-05-02T12:00:00Z' },
+    ]);
+    mockApi.getConversation.mockResolvedValue(makeConversation());
+    mockApi.sendMessageStream.mockImplementation(
+      scriptedStream([
+        ['stage1_complete', { type: 'stage1_complete', data: [{ label: 'Response A', model: 'openai/gpt-4o', content: 'a' }] }],
+        [
+          'stage2_complete',
+          {
+            type: 'stage2_complete',
+            kind: 'peer_ranking',
+            data: [{ reviewer_label: 'Response A', rankings: ['Response A'] }],
+            metadata: { label_to_model: { 'Response A': 'openai/gpt-4o' }, aggregate_rankings: [], consensus_w: 1 },
+          },
+        ],
+        [
+          'stage3_complete',
+          { type: 'stage3_complete', data: { content: 'final answer', model: 'openai/gpt-4o' } },
+        ],
+      ]),
+    );
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole('button', { name: /One/ }));
+    const input = await screen.findByPlaceholderText(/Ask a question/i);
+    await waitFor(() => expect(input).not.toBeDisabled());
+
+    await user.type(input, 'hello');
+    await user.click(screen.getByRole('button', { name: /Send/i }));
+
+    expect(await screen.findByText('final answer')).toBeInTheDocument();
+    expect(screen.queryByText(/Synthesising final answer/i)).not.toBeInTheDocument();
+  });
+});
+
 // ── deriveStage2Kind on replay (loadConversation) ───────────────────────────
 // AssistantMessage doesn't persist `kind` itself (confirmed against backend
 // source — see docs/api-contract.md). App.jsx must infer it from the
