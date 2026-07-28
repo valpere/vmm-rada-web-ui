@@ -53,11 +53,15 @@ export class ApiError extends Error {
 // thing it actually sends — no code field exists) to a stable client-side
 // code, so callers don't have to match on message text themselves. Backend
 // source: internal/api/handler.go, writeError call sites.
-const KNOWN_ERROR_CODES = {
-  'conversation is closed': 'conversation_closed',
-  'no pending clarification round': 'no_pending_clarification_round',
-  'clarification round already answered': 'clarification_round_already_answered',
-};
+// A Map (not a plain object) — the lookup key comes from the backend
+// response body, and a plain object's inherited properties (`__proto__`,
+// `constructor`, etc.) would resolve to a truthy non-string value for those
+// keys instead of the intended "unrecognised" case.
+const KNOWN_ERROR_CODES = new Map([
+  ['conversation is closed', 'conversation_closed'],
+  ['no pending clarification round', 'no_pending_clarification_round'],
+  ['clarification round already answered', 'clarification_round_already_answered'],
+]);
 
 // buildErrorForResponse reads the JSON body (if any) for a non-2xx response
 // and returns a typed ApiError. writeError always writes a body
@@ -78,7 +82,7 @@ async function buildErrorForResponse(response, genericMessage) {
   }
   const message = backendMessage ?? genericMessage;
   return new ApiError({
-    code: KNOWN_ERROR_CODES[message] ?? null,
+    code: KNOWN_ERROR_CODES.get(message) ?? null,
     status: response.status,
     message,
   });

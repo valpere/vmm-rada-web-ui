@@ -171,6 +171,26 @@ describe('api.sendMessage', () => {
     expect(err.status).toBe(409);
     expect(err.code).toBeNull();
   });
+
+  // KNOWN_ERROR_CODES uses a Map, not a plain object, specifically so a
+  // backend-controlled message string matching an inherited Object property
+  // name can't resolve to a truthy non-string value instead of "unrecognised".
+  it.each(['__proto__', 'constructor', 'toString'])(
+    'leaves code null for the message string %j (prototype-property name)',
+    async (message) => {
+      const body = JSON.stringify({ error: message });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValueOnce(
+          new Response(body, { status: 409, headers: { 'Content-Type': 'application/json' } }),
+        ),
+      );
+
+      const err = await api.sendMessage('abc', 'x').catch((e) => e);
+      expect(err).toBeInstanceOf(ApiError);
+      expect(err.code).toBeNull();
+    },
+  );
 });
 
 // ── sendMessageStream ──────────────────────────────────────────────────────
