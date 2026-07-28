@@ -48,6 +48,16 @@ echo "[$(date -Iseconds)] vmm-rada-web-ui dreaming pass started" >> "$LOG"
 # Run from project root so relative paths in prompt work.
 cd "$PROJECT_DIR"
 
+# graphify staleness safety net — the git post-commit/post-checkout hooks
+# (installed via `graphify hook install`) should keep graphify-out/graph.json
+# current automatically, but this flags it here too in case a hook ever
+# silently fails to fire on some future clone/machine. check-update is
+# explicitly documented as cron-safe (no LLM cost, exits non-fatally).
+if command -v graphify >/dev/null 2>&1 && [[ -f "$PROJECT_DIR/graphify-out/graph.json" ]]; then
+  echo "[$(date -Iseconds)] graphify check-update:" >> "$LOG"
+  graphify check-update "$PROJECT_DIR" >> "$LOG" 2>&1 || true
+fi
+
 PROMPT="$(cat "$PROMPT_FILE")
 Today is $(date -I).
 Current branch: $(git rev-parse --abbrev-ref HEAD).

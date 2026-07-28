@@ -44,6 +44,9 @@ dist-ssr
 # /self-learn pattern data — local learning log, not source
 _patterns/*.jsonl
 
+# graphify generated artifacts — rebuilt via git hooks, not source
+graphify-out/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
