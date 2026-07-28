@@ -26,12 +26,20 @@ const API_BASE = (() => {
 })();
 
 // ApiError is the typed error thrown by the API adapter for non-2xx responses.
-// `code` is the backend's machine-readable identifier (e.g. "ErrConversationClosed",
-// "conversation_closed" from vmm-rada@0aa5178 / PR #310). `status` is the HTTP
-// status code. `message` is the human-readable message from the backend when
-// available, falling back to the original generic message. Per architectural
-// rule 2 (adapter boundary), raw HTTP status codes do not leak past this module;
-// App.jsx dispatches on `error.code` / `error instanceof ApiError` instead.
+// `status` is the HTTP status code. `message` is the human-readable message
+// from the backend when available, falling back to the original generic
+// message. Per architectural rule 2 (adapter boundary), raw HTTP status codes
+// do not leak past this module; App.jsx dispatches on `error.code` /
+// `error instanceof ApiError` instead.
+//
+// `code` is derived entirely client-side from `message` via KNOWN_ERROR_CODES
+// below — the backend has no `code` field on the wire (verified exhaustively
+// against internal/api/handler.go's writeError, which only ever writes
+// {"error": msg}; see docs/api-contract.md). A prior version of this class
+// forwarded a nonexistent `body.code` and, when absent, treated *any* 409 as
+// conversation-closed — that fallback misclassified the two other real 409
+// causes ("no pending clarification round", "clarification round already
+// answered") as conversation-closed too.
 export class ApiError extends Error {
   constructor({ code, status, message }) {
     super(message);
@@ -41,34 +49,38 @@ export class ApiError extends Error {
   }
 }
 
-// handleErrorResponse reads the JSON body (if any) for a non-2xx response and
-// returns a typed `ApiError`. For 409 specifically (the only status the
-// backend currently marks as a distinct machine-readable code) we forward the
-// backend's `code` and `message` so App.jsx can branch on it. For other
-// statuses we keep the existing generic message but still surface `status` so
-// downstream code can inspect it if needed.
-//
-// When the backend returns 409 with an empty/non-JSON body (e.g. a Go panic
-// returns an empty 409), we fall back to a synthetic code so App.jsx can still
-// recognise the conversation-closed case from the status alone. This is a
-// safety net for unparseable bodies — well-formed responses still drive on
-// `code`.
+// KNOWN_ERROR_CODES maps the backend's exact error message strings (the only
+// thing it actually sends — no code field exists) to a stable client-side
+// code, so callers don't have to match on message text themselves. Backend
+// source: internal/api/handler.go, writeError call sites.
+const KNOWN_ERROR_CODES = {
+  'conversation is closed': 'conversation_closed',
+  'no pending clarification round': 'no_pending_clarification_round',
+  'clarification round already answered': 'clarification_round_already_answered',
+};
+
+// buildErrorForResponse reads the JSON body (if any) for a non-2xx response
+// and returns a typed ApiError. writeError always writes a body
+// ({"error": msg}, unconditionally, for every error path on the backend) —
+// there is no real empty-body case to guard against, so unlike a prior
+// version of this function, no status-based fallback is needed: an
+// unrecognised message simply gets `code: null`, and callers that only
+// handle specific codes correctly fall through to their generic path.
 async function buildErrorForResponse(response, genericMessage) {
-  let backendCode;
   let backendMessage;
   try {
     const body = await response.json();
-    if (body && typeof body === 'object') {
-      if (typeof body.code === 'string') backendCode = body.code;
-      if (typeof body.error === 'string') backendMessage = body.error;
+    if (body && typeof body === 'object' && typeof body.error === 'string') {
+      backendMessage = body.error;
     }
   } catch {
     // body was not JSON or unreadable — fall back to generic message
   }
+  const message = backendMessage ?? genericMessage;
   return new ApiError({
-    code: backendCode ?? (response.status === 409 ? 'ErrConversationClosed' : null),
+    code: KNOWN_ERROR_CODES[message] ?? null,
     status: response.status,
-    message: backendMessage ?? genericMessage,
+    message,
   });
 }
 

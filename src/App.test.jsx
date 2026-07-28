@@ -249,21 +249,22 @@ describe('loadConversation propagates closed flag', () => {
   });
 });
 
-// ── 409 ErrConversationClosed catch paths ─────────────────────────────────
-// Per backend vmm-rada@0aa5178 (PR #310), submitting a message or clarification
-// answers to a closed conversation returns 409 with
-// `code: ErrConversationClosed`. App.jsx must surface this as a typed error on
-// the assistant message and mark the conversation closed, instead of rolling
-// back the optimistic user/assistant pair.
+// ── 409 catch paths ──────────────────────────────────────────────────────
+// `error.code` is derived client-side in src/api.js from the backend's exact
+// message string — there is no wire-level code field (verified against
+// internal/api/handler.go). isConversationClosedError must only match
+// `code: 'conversation_closed'`, not any 409 (gh#95 — a prior version
+// treated every 409 as conversation-closed, misclassifying the other two
+// real 409 causes).
 
-describe('409 ErrConversationClosed on handleSendMessage', () => {
+describe('409 conversation_closed on handleSendMessage', () => {
   it('surfaces the typed error on the assistant message and marks closed', async () => {
     mockApi.listConversations.mockResolvedValue([
       { id: 'conv-1', title: 'One', created_at: '2026-05-02T12:00:00Z' },
     ]);
     mockApi.getConversation.mockResolvedValue(makeConversation());
     mockApi.sendMessageStream.mockRejectedValueOnce(
-      new ApiError({ code: 'ErrConversationClosed', status: 409, message: 'conversation closed' }),
+      new ApiError({ code: 'conversation_closed', status: 409, message: 'conversation is closed' }),
     );
 
     const user = userEvent.setup();
@@ -316,10 +317,45 @@ describe('409 ErrConversationClosed on handleSendMessage', () => {
       screen.queryByText(/This conversation has been closed/i),
     ).not.toBeInTheDocument();
   });
+
+  it('does not treat a round-conflict 409 as conversation-closed (gh#95 regression)', async () => {
+    mockApi.listConversations.mockResolvedValue([
+      { id: 'conv-1', title: 'One', created_at: '2026-05-02T12:00:00Z' },
+    ]);
+    mockApi.getConversation.mockResolvedValue(makeConversation());
+    mockApi.sendMessageStream.mockRejectedValueOnce(
+      new ApiError({
+        code: 'clarification_round_already_answered',
+        status: 409,
+        message: 'clarification round already answered',
+      }),
+    );
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole('button', { name: /One/ }));
+
+    const input = await screen.findByPlaceholderText(/Ask a question/i);
+    await waitFor(() => expect(input).not.toBeDisabled());
+
+    await user.type(input, 'hello');
+    await user.click(screen.getByRole('button', { name: /Send/i }));
+
+    // Not misclassified as conversation-closed: rolls back like any other
+    // non-conversation-closed error, and the input re-enables (not stuck
+    // disabled with the closed-state copy).
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText(/Ask a question/i)).not.toBeDisabled(),
+    );
+    expect(
+      screen.queryByText(/This conversation has been closed/i),
+    ).not.toBeInTheDocument();
+  });
 });
 
-describe('409 ErrConversationClosed on handleAnswerSubmit', () => {
-  it('surfaces the typed error on the assistant message and marks closed', async () => {
+describe('409 handling on handleAnswerSubmit', () => {
+  it('surfaces the typed error on the assistant message and marks closed for conversation_closed', async () => {
     mockApi.listConversations.mockResolvedValue([
       { id: 'conv-1', title: 'One', created_at: '2026-05-02T12:00:00Z' },
     ]);
@@ -342,7 +378,7 @@ describe('409 ErrConversationClosed on handleAnswerSubmit', () => {
       )
       // Second call: the user submits answers, conversation is now closed.
       .mockRejectedValueOnce(
-        new ApiError({ code: 'ErrConversationClosed', status: 409, message: 'conversation closed' }),
+        new ApiError({ code: 'conversation_closed', status: 409, message: 'conversation is closed' }),
       );
 
     const user = userEvent.setup();
@@ -372,6 +408,52 @@ describe('409 ErrConversationClosed on handleAnswerSubmit', () => {
     await waitFor(() =>
       expect(screen.getByPlaceholderText(/conversation has ended/i)).toBeDisabled(),
     );
+  });
+
+  it('does not treat "clarification round already answered" as conversation-closed (gh#95 regression)', async () => {
+    // This is the realistic path where the round-conflict 409s actually
+    // occur — a double-submit of the same clarification round.
+    mockApi.listConversations.mockResolvedValue([
+      { id: 'conv-1', title: 'One', created_at: '2026-05-02T12:00:00Z' },
+    ]);
+    mockApi.getConversation.mockResolvedValue(makeConversation());
+    mockApi.sendMessageStream
+      .mockImplementationOnce(
+        scriptedStream([
+          [
+            'stage0_round_complete',
+            { type: 'stage0_round_complete', data: { round: 1, questions: [{ id: 'q1', text: 'Which framework?' }] } },
+          ],
+        ]),
+      )
+      .mockRejectedValueOnce(
+        new ApiError({
+          code: 'clarification_round_already_answered',
+          status: 409,
+          message: 'clarification round already answered',
+        }),
+      );
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole('button', { name: /One/ }));
+
+    const input = await screen.findByPlaceholderText(/Ask a question/i);
+    await waitFor(() => expect(input).not.toBeDisabled());
+
+    await user.type(input, 'help me choose');
+    await user.click(screen.getByRole('button', { name: /Send/i }));
+
+    const answerTextarea = await screen.findByPlaceholderText(/Your answer/i);
+    await user.type(answerTextarea, 'react');
+    await user.click(screen.getByRole('button', { name: /Submit answers/i }));
+
+    // Not misclassified: no "conversation has been closed" copy, and the
+    // conversation is not marked closed.
+    await waitFor(() => {
+      expect(screen.queryByText(/This conversation has been closed/i)).not.toBeInTheDocument();
+    });
   });
 });
 

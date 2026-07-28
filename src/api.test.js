@@ -133,8 +133,16 @@ describe('api.sendMessage', () => {
     await expect(api.sendMessage('abc', 'x')).rejects.toThrow(/Failed to send/);
   });
 
-  it('throws a typed ApiError on 409 with backend code', async () => {
-    const body = JSON.stringify({ code: 'ErrConversationClosed', error: 'conversation closed' });
+  // The backend distinguishes 409 causes by message string only — writeError
+  // always sends {"error": msg}, never a code field (verified against
+  // internal/api/handler.go). One test per real cause, plus the
+  // unrecognised-message fallback.
+  it.each([
+    ['conversation is closed', 'conversation_closed'],
+    ['no pending clarification round', 'no_pending_clarification_round'],
+    ['clarification round already answered', 'clarification_round_already_answered'],
+  ])('derives code %j -> %j from the backend message string on 409', async (message, code) => {
+    const body = JSON.stringify({ error: message });
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValueOnce(
@@ -145,23 +153,23 @@ describe('api.sendMessage', () => {
     const err = await api.sendMessage('abc', 'x').catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(409);
-    expect(err.code).toBe('ErrConversationClosed');
-    expect(err.message).toBe('conversation closed');
+    expect(err.code).toBe(code);
+    expect(err.message).toBe(message);
   });
 
-  it('synthesises ErrConversationClosed on 409 with no body', async () => {
-    // Backend sometimes returns an empty 409 (e.g. panic mid-render). The
-    // adapter must still mark this as conversation-closed so App.jsx can
-    // branch on the status.
+  it('leaves code null for a 409 with an unrecognised message', async () => {
+    const body = JSON.stringify({ error: 'some future 409 cause not yet known to the frontend' });
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValueOnce(new Response('', { status: 409 })),
+      vi.fn().mockResolvedValueOnce(
+        new Response(body, { status: 409, headers: { 'Content-Type': 'application/json' } }),
+      ),
     );
 
     const err = await api.sendMessage('abc', 'x').catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(409);
-    expect(err.code).toBe('ErrConversationClosed');
+    expect(err.code).toBeNull();
   });
 });
 
@@ -234,8 +242,8 @@ describe('api.sendMessageStream', () => {
     ).rejects.toThrow(/Failed to send/);
   });
 
-  it('throws a typed ApiError on 409 with backend code', async () => {
-    const body = JSON.stringify({ code: 'ErrConversationClosed', error: 'conversation closed' });
+  it('derives code from the backend message string on 409', async () => {
+    const body = JSON.stringify({ error: 'conversation is closed' });
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValueOnce(
@@ -248,8 +256,25 @@ describe('api.sendMessageStream', () => {
       .catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(409);
-    expect(err.code).toBe('ErrConversationClosed');
-    expect(err.message).toBe('conversation closed');
+    expect(err.code).toBe('conversation_closed');
+    expect(err.message).toBe('conversation is closed');
+  });
+
+  it('does not misclassify a round-conflict 409 as conversation-closed', async () => {
+    const body = JSON.stringify({ error: 'clarification round already answered' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(
+        new Response(body, { status: 409, headers: { 'Content-Type': 'application/json' } }),
+      ),
+    );
+
+    const err = await api
+      .sendMessageStream('abc', { answers: [{ id: 'q1', text: 'x' }] }, vi.fn())
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.code).toBe('clarification_round_already_answered');
+    expect(err.code).not.toBe('conversation_closed');
   });
 
   it('forwards the body verbatim (clarification answers shape)', async () => {
