@@ -11,11 +11,22 @@ contain JSON payloads.
   message and one assistant message. Sending a second message to an existing
   conversation is not supported by the UI — the frontend creates a new
   conversation for each question.
-- **`metadata` is ephemeral.** `label_to_model`, `aggregate_rankings`, and the
-  strategy-specific fields (`vote_tally`, `rank_refine`, `debate`,
-  `moa_aggregator`, `delphi`) are only returned during the streaming/blocking
-  response and are not persisted. `GET /api/conversations/{id}` does not
-  include them.
+- **`metadata` IS persisted and returned on replay.** Verified against backend
+  source (`internal/storage/storage.go` `SaveAssistantMessage` — marshals the
+  full `council.AssistantMessage` struct, `Metadata` field has no `omitempty`
+  or `-` tag) — `GET /api/conversations/{id}` returns the same `metadata`
+  object that was present at streaming/blocking-response time, byte-for-byte
+  (`Conversation.Messages` is stored as raw JSON). This corrects a prior
+  version of this doc that claimed metadata was ephemeral and stripped on
+  replay — that claim was never true against current backend behavior. See
+  gh#94 for the frontend bug this false assumption produced (`deriveStage2Kind`
+  ignores the now-confirmed-present `metadata.council_type` on replay).
+  **Security note:** this means `label_to_model` (which model produced which
+  response) is retrievable indefinitely via `GET /api/conversations/{id}`,
+  not just during the live session — this project has no auth layer, so
+  anyone with network access to the backend can read it for any past
+  conversation. Flagging for awareness; whether that's an acceptable trade-off
+  is a backend/product decision, out of scope for this frontend-docs fix.
 - **Strategy is server-side configuration, not a client concern.** The same
   two endpoints (`/message`, `/message/stream`) serve all seven deliberation
   strategies. The frontend sends `council_type` (currently hardcoded to
@@ -108,7 +119,7 @@ Response:
 DELETE /api/conversations/{id}
 ```
 
-Response `200 OK` (or `204`) — empty body. Used by `Sidebar`'s delete action.
+Response `204 No Content` — empty body. Used by `Sidebar`'s delete action.
 
 ---
 
@@ -144,8 +155,16 @@ terminal state, all at once (waits for all stages to complete). The frontend
 uses the streaming endpoint instead; this one exists for non-streaming
 integrations.
 
-**Errors:** `400` (invalid body/UUID), `404` (not found), `409` (conversation
-closed — `code: "ErrConversationClosed"`), `503` (quorum not met), `500`.
+**Errors:** `400` (invalid body/UUID), `404` (not found), `409`, `503` (quorum
+not met), `500`. **409 has three distinct causes, discriminated only by the
+`error` message string — there is no `code` field on the wire (verified
+against backend source; a prior version of this doc claimed one existed —
+see gh#95):**
+| `error` message | Cause |
+|---|---|
+| `"conversation is closed"` | Message/answers sent to a closed conversation |
+| `"no pending clarification round"` | Round-N answers submitted with nothing pending |
+| `"clarification round already answered"` | Round-N answers submitted twice |
 
 ---
 
@@ -168,8 +187,13 @@ X-Accel-Buffering: no
 See [streaming.md](./streaming.md) for the full event sequence and payload
 shapes, including the Stage 0 clarification round-trip.
 
-**Errors:** `400` (invalid body/UUID), `404` (not found), `409` (conversation
-closed — `code: "ErrConversationClosed"`), `503` (quorum not met), `500`.
+**Errors:** `400` (invalid body/UUID), `404` (not found), `409`, `503` (quorum
+not met), `500` — all as pre-SSE HTTP responses (SSE headers are not yet
+written when these fire). The three 409 causes are the same as [Send Message
+(Blocking)](#send-message-blocking) above, discriminated by `error` message
+string, no `code` field. Pipeline-run failures that occur *after* SSE headers
+are written (quorum, chairman failure, storage) surface as a post-SSE `error`
+event instead of an HTTP status — see [streaming.md](./streaming.md#error).
 
 ---
 
@@ -214,6 +238,7 @@ closed — `code: "ErrConversationClosed"`), `503` (quorum not met), `500`.
   stage1: StageOneResult[]
   stage2: StageTwoResult[]
   stage3: StageThreeResult
+  metadata: Metadata          // persisted and returned as-is on replay — see gh#94
 }
 ```
 
@@ -252,7 +277,7 @@ strategies carry their Stage 2 content in `metadata` instead — see
 }
 ```
 
-### Metadata (ephemeral — streaming/blocking response only, not stored)
+### Metadata (persisted — same shape on streaming/blocking response and on replay, see gh#94)
 
 ```
 {
@@ -290,8 +315,13 @@ strategies carry their Stage 2 content in `metadata` instead — see
 
 The backend allows:
 - Origins: `http://localhost:5173`, `http://localhost:3000`
-- Methods: `GET`, `POST`, `OPTIONS`
+- Methods: `GET`, `POST`, `PATCH`, `DELETE`, `OPTIONS`
 - Headers: `Content-Type`
+
+**Known gap (backend-documented):** these are the frontend's former in-monorepo
+dev-server origins, carried over unchanged since extraction (2026-07-19).
+There is no origin covering a non-localhost deployment of this frontend, and
+no backend env var to add one.
 
 The Vite dev server also proxies `/api` → the backend (see `vite.config.js`),
 so `VITE_API_BASE` is only needed when serving the built frontend from a

@@ -633,8 +633,9 @@ function DelphiView({ delphi, isLoading }) {
 // "Stage 2 is skipped; a minimal Stage2CompleteData event is emitted for SSE
 // compatibility"), so there is no strategy-specific metadata to show here.
 // The per-role content lives entirely in `stage1`, where `label` is the role
-// name (Generator/Critic/Verifier/Simplifier) rather than an anonymised
-// "Response A" — no de-anonymisation lookup needed, unlike PeerRankingView.
+// name (e.g. Creator/Critic/Verifier/Simplifier/DevilsAdvocate — role-agnostic,
+// this view renders whatever label the backend sends) rather than an
+// anonymised "Response A" — no de-anonymisation lookup needed, unlike PeerRankingView.
 // Re-displaying stage1 content inside the Stage 2 slot mirrors MoaView's
 // "Layer 1 — Proposers" panel, which does the same for MixtureOfAgents.
 function RoleRow({ result }) {

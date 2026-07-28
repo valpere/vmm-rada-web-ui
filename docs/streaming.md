@@ -16,27 +16,33 @@ line, demux by `type`. Additional fields depend on the event type.
 
 ## Event Sequence
 
+Verified against backend source (`internal/api/handler.go`'s `sendMessageStream`)
+— this is the complete, exhaustive list of event types the backend ever
+writes to the wire. **A prior version of this doc additionally listed
+`stage0_done`, `stage1_start`, `stage2_start`, and `stage3_start` as real
+events — none of them are ever emitted.** `stage0_done` is generated
+internally by the council runner but explicitly swallowed by the handler
+before reaching the client; the three `*_start` events never existed in the
+handler at all. See gh#96 for the frontend bug this produced (Stage 2/3
+loading spinners never render, since they only ever flip on via the
+non-existent `stage2_start`/`stage3_start`).
+
 ```
 data: {"type":"stage0_round_complete", ...}   ← optional, stream CLOSES here
   … client re-POSTs with {"answers":[...]} …
-data: {"type":"stage0_done"}                   ← Stage 1 follows on the same stream
-
-data: {"type":"stage1_start"}
 data: {"type":"stage1_complete", "data":[...StageOneResult]}
-data: {"type":"stage2_start"}
 data: {"type":"stage2_complete", "data":[...], "kind":"...", "metadata":{...}}
-data: {"type":"stage3_start"}
 data: {"type":"stage3_complete", "data":{...StageThreeResult}}
 data: {"type":"title_complete", "data":{"title":"..."}}   ← may be absent (30s timeout)
 data: {"type":"complete"}
 ```
 
 `stage0_*` only appears when the backend's clarification stage is enabled
-(`CLARIFICATION_MAX_ROUNDS` > 0 on the backend; off by default). `*_start`
-events exist purely to drive per-stage loading spinners in the UI — they
-carry no payload. `title_complete` runs concurrently with the pipeline and
-may arrive before or after `stage3_complete`; the frontend handles either
-ordering.
+(`CLARIFICATION_MAX_ROUNDS` > 0 on the backend; off by default). There is no
+event marking the Stage 0 → Stage 1 boundary — the stream simply continues
+straight into `stage1_complete` once clarification ends. `title_complete`
+runs concurrently with the pipeline and may arrive before or after
+`stage3_complete`; the frontend handles either ordering.
 
 ## Event Payloads
 
@@ -63,24 +69,6 @@ the body to continue.
 The frontend's `Stage0` component renders each question via `react-markdown`
 with a free-text answer box; "Skip" submits all-empty answers, which the
 backend treats as ending the clarification loop.
-
-### stage0_done
-
-Emitted when the clarification loop ends (chairman satisfied, round limit
-reached, or the user submitted all-empty answers). `stage1_start` /
-`stage1_complete` follow immediately on the same stream.
-
-```json
-{ "type": "stage0_done" }
-```
-
-### stage1_start / stage2_start / stage3_start
-
-No payload — flip the corresponding `loading.stageN` flag in the UI.
-
-```json
-{ "type": "stage1_start" }
-```
 
 ### stage1_complete
 
@@ -165,9 +153,11 @@ Wire-format invariants:
 ```
 
 May be absent if title generation exceeds a 30-second deadline. The title is
-derived from the first 50 **bytes** of the Stage 3 response — multi-byte
-UTF-8 characters may be cut mid-character. The frontend reloads the
-conversation list on this event.
+derived from the first 50 **runes** of the Stage 3 response — rune-safe
+truncation, multi-byte UTF-8 characters are never split (verified against
+backend source; a prior version of this doc claimed byte-based truncation
+that could cut mid-character — that was never accurate). The frontend
+reloads the conversation list on this event.
 
 ### complete
 
@@ -210,8 +200,14 @@ An unrecognised `kind` renders via a fallback view
 skips Stage 2 entirely — there is no strategy-specific metadata to show. The
 frontend's `RoleView` instead re-displays `stage1` (already present on the
 message) inside the Stage 2 slot, using each result's `label` directly as the
-role name (Generator/Critic/Verifier/Simplifier) — no `label_to_model` lookup,
-since role names aren't anonymised the way PeerReview's labels are.
+role name — no `label_to_model` lookup, since role names aren't anonymised the
+way PeerReview's labels are. `RoleView` is role-name-agnostic (renders
+whatever `label` the backend sends), so it's unaffected by role-set changes on
+the backend; only this doc's example names need to stay current. As of
+`vmm-rada@9dde00c` (2026-07-27) the role set is Creator/Critic/Verifier/
+Simplifier/DevilsAdvocate (renamed from Generator, DevilsAdvocate added —
+`internal/council/roles.go`), not the 4-role Generator/Critic/Verifier/
+Simplifier set this doc previously named.
 
 The frontend UI does not currently expose strategy selection — it always
 sends `council_type: "default"`. Which strategy that resolves to (and thus
@@ -250,18 +246,23 @@ while (true) {
 }
 ```
 
-`App.jsx`'s `makeStreamHandlers` maps each `eventType` to a state update:
+`App.jsx`'s `makeStreamHandlers` maps each `eventType` to a state update.
+**Rows marked `[dead]` register a handler for an event the backend never
+sends** (see the Event Sequence note above / gh#96) — harmless where the
+loading flag is already `true` from the message's initial state
+(`stage0_done`, `stage1_start`), a real gap where nothing else ever sets the
+flag (`stage2_start`, `stage3_start`):
 
 | Event | State change |
 |-------|---------------|
 | `stage0_round_complete` | `msg.pendingClarification = event.data`, clears `loading.stage0`/`loading.stage1` |
-| `stage0_done` | clears `pendingClarification`, `loading.stage1 = true` |
-| `stage1_start` | `loading.stage1 = true` |
+| `stage0_done` `[dead]` | clears `pendingClarification`, `loading.stage1 = true` |
+| `stage1_start` `[dead]` | `loading.stage1 = true` |
 | `stage1_complete` | `msg.stage1 = event.data`, `loading.stage1 = false` |
-| `stage2_start` | `loading.stage2 = true` |
+| `stage2_start` `[dead — real gap, see gh#96]` | `loading.stage2 = true` |
 | `stage2_round_complete` | appends into `msg.metadata.<debate\|delphi>.rounds`, sets `msg.stage2Kind` |
 | `stage2_complete` | `msg.stage2 = event.data`, `msg.stage2Kind = event.kind`, `msg.metadata = event.metadata`, `loading.stage2 = false` |
-| `stage3_start` | `loading.stage3 = true` |
+| `stage3_start` `[dead — real gap, see gh#96]` | `loading.stage3 = true` |
 | `stage3_complete` | `msg.stage3 = event.data`, `loading.stage3 = false`, marks conversation closed, reloads conversation list |
 | `title_complete` | reloads conversation list |
 | `complete` | reloads conversation list, `isLoading = false` |
