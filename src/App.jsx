@@ -15,20 +15,31 @@ function isConversationClosedError(err) {
   return err.code === 'ErrConversationClosed' || err.code === 'conversation_closed';
 }
 
-// Maps a persisted council_type (or a strategy-emitted Stage 2 kind) to the
-// kind value the Stage2 dispatcher expects. Today only PeerReview is
-// persistable, so "default" → "peer_ranking". Future strategies extend the
-// switch when their registrations begin persisting. Empty / whitespace / null
-// inputs all collapse to "peer_ranking" — the safe pre-this-PR default.
-function deriveStage2Kind(councilType) {
-  const ct = (councilType ?? '').trim();
-  if (!ct) return 'peer_ranking';
-  switch (ct) {
-    case 'default':
-      return 'peer_ranking';
-    default:
-      return 'peer_ranking';
-  }
+// Derives the Stage2 dispatcher's `kind` value from a replayed message's
+// persisted shape. The backend does not persist `kind` itself, but
+// Metadata's strategy-specific sub-object presence (vote_tally, rank_refine,
+// debate, moa_aggregator, delphi — each `omitempty` on the backend,
+// internal/council/types.go) unambiguously identifies 5 of 7 kinds
+// regardless of what council_type *name* was used to register the strategy.
+// A name lookup (e.g. "majority" -> "vote_tally") is not robust: the backend
+// supports multiple custom-named registrations sharing one Strategy (its own
+// docs give "factual-majority" and "creative-majority", both
+// Strategy: Majority) — shape inference sidesteps that entirely.
+//
+// `peer_ranking` and `role_stub` are the two kinds with no distinguishing
+// metadata sub-object — the tiebreaker is stage2 array emptiness: PeerReview
+// always produces a non-empty StageTwoResult[] (every model's response gets
+// peer-reviewed), RoleBased's stage2 is always `[]` (Stage 2 is skipped
+// entirely for that strategy).
+function deriveStage2Kind(stage2, metadata) {
+  if (!metadata) return 'peer_ranking';
+  if (metadata.vote_tally) return 'vote_tally';
+  if (metadata.rank_refine) return 'rank_refine';
+  if (metadata.debate) return 'debate_round';
+  if (metadata.moa_aggregator) return 'moa_aggregator';
+  if (metadata.delphi) return 'delphi_round';
+  const hasRankings = Array.isArray(stage2) && stage2.length > 0;
+  return hasRankings ? 'peer_ranking' : 'role_stub';
 }
 
 // normaliseStage2Kind treats null/undefined/empty/whitespace as missing and
@@ -110,14 +121,13 @@ function App() {
         })
         .map((msg) => {
           if (msg.role !== 'assistant') return msg;
-          // AssistantMessage doesn't persist Kind, so derive stage2Kind from
-          // metadata.council_type for replay. Falls back to "peer_ranking" for
-          // missing council_type — matches the pre-this-PR rendering default.
+          // AssistantMessage doesn't persist `kind` itself, so derive
+          // stage2Kind from the persisted stage2/metadata shape for replay.
           return {
             loading: { stage0: false, stage1: false, stage2: false, stage3: false },
             error: null,
             pendingClarification: null,
-            stage2Kind: deriveStage2Kind(msg.metadata?.council_type),
+            stage2Kind: deriveStage2Kind(msg.stage2, msg.metadata),
             ...msg,
           };
         });

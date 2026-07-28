@@ -18,9 +18,13 @@ contain JSON payloads.
   object that was present at streaming/blocking-response time, byte-for-byte
   (`Conversation.Messages` is stored as raw JSON). This corrects a prior
   version of this doc that claimed metadata was ephemeral and stripped on
-  replay — that claim was never true against current backend behavior. See
-  gh#94 for the frontend bug this false assumption produced (`deriveStage2Kind`
-  ignores the now-confirmed-present `metadata.council_type` on replay).
+  replay — that claim was never true against current backend behavior. This
+  false assumption previously caused `App.jsx`'s `deriveStage2Kind` to
+  mis-render 6 of 7 strategies as `PeerRankingView` on replay — fixed (gh#94)
+  by inferring `kind` from Metadata's strategy-specific sub-object presence
+  rather than from `council_type`, since custom-named registrations sharing
+  a strategy (e.g. `"factual-majority"` / `"creative-majority"`, both
+  `Strategy: Majority`) make a name-based lookup unreliable.
   **Security note:** this means `label_to_model` (which model produced which
   response) is retrievable indefinitely via `GET /api/conversations/{id}`,
   not just during the live session — this project has no auth layer, so
