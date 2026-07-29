@@ -261,7 +261,11 @@ $(cat baseline.diff)"
 
 Send the prompt to each reviewer model, routed through whichever tier is
 active (`$TIER` from Step 2). The external-agent adapters read their prompt
-from a file, not a shell variable, so write it once:
+from a file, not a shell variable, so write it once. `lib/agents.sh` requires
+`yq` and `jq` on `PATH` (used to parse `reviewers.external_agents` from
+config.yaml and each tool's JSON output envelope) — both are personal-machine
+prerequisites for this skill already, same category as `ollama serve` and
+the external-agent CLIs themselves, not something CI needs:
 
 ```bash
 PROMPT_FILE=$(mktemp)
