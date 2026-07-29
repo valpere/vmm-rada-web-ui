@@ -290,6 +290,13 @@ dispatch_round() {
         cat "$PROMPT_FILE" | bash .claude/skills/fix-review/ollama-review.sh "$cli_model"
       fi
       ;;
+    *)
+      # $TIER should only ever be "cloud" or "external_agents" (set in Step 2)
+      # — an unset/typo'd value must not silently degrade to "0 findings" and
+      # look like a clean review. Fail loudly instead.
+      echo "error: dispatch_round: unrecognized \$TIER='$TIER' — check Step 2's probe logic" >&2
+      exit 1
+      ;;
   esac
 }
 ```
@@ -309,6 +316,14 @@ R1=$(dispatch_round 1 "$ROUND1" "$CLI1")
 ```
 Skip R2/R3 entirely — do not call them, and treat their findings as absent
 (not as empty-array votes) when tallying.
+
+Once every round needed has been dispatched, clean up — the prompt file
+contains the PR diff, and `$RUN_DIR` may contain external-agent output,
+neither of which should linger in `/tmp`:
+```bash
+rm -f "$PROMPT_FILE"
+rm -rf "$RUN_DIR"
+```
 
 Each call returns a JSON array (empty `[]` on parse failure — safe degradation).
 The JSON output contract (raw array, `file/line/layer/severity/description`)
