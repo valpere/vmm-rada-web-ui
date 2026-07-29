@@ -83,15 +83,9 @@ Backend config env vars relevant to frontend: `RADA_MODELS` (default-strategy mo
 
 ## Workflow
 
-**Branch naming:**
-```
-feat/{short-description}      e.g. feat/stage3-error-ui
-fix/{description}             e.g. fix/loading-stage3-never-clears
-docs/{description}            e.g. docs/update-streaming-contract
-refactor/{description}        e.g. refactor/extract-sse-handler
-```
-
-**Commit format:** `fix(scope): description` / `feat(scope): description` / `docs: description`
+**Branch naming and commit format:** see `docs/development-workflow.md` §
+"Branch, Commit, and PR Conventions" — the single source of truth for both
+lists (includes `chore/` and `task(scope):`, which this file used to omit).
 
 **Debt levels** — label all PRs and proposals:
 - ⚡ quick-fix: targeted, no refactor
