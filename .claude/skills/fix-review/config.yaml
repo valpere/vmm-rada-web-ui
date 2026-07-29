@@ -15,8 +15,23 @@ reviewers:
     round_2: { model: minimax-m2.7:cloud }          # MiniMax, non-thinking, long-ctx
     round_3: { model: gemma4:31b-cloud }            # Gemma code model, non-thinking
 
-  # Local failover tier — tools-capable models, no network dependency.
-  # Engages automatically when the Ollama cloud endpoint probe fails.
+  # Tier 2 — external agent CLIs, own free-tier subscriptions/logins,
+  # entirely independent of the Ollama cloud quota. Tried in this order per
+  # round; first one that returns a non-empty result wins. See
+  # .claude/skills/lib/agents.sh for the adapters. `agy` was evaluated and
+  # excluded: even given the full review prompt it consistently explores
+  # the filesystem instead of answering (verified 2026-07-29, not a
+  # prompt-wording issue).
+  external_agents:
+    - { tool: cursor-agent, model: auto }
+    - { tool: omp }
+    - { tool: codex }
+    - { tool: opencode, model: "opencode/nemotron-3-ultra-free" }
+    - { tool: kilo }
+
+  # Tier 3 — local failover, tools-capable models, no network dependency.
+  # Engages only if the Ollama cloud tier is unreachable AND every
+  # external_agents tool above also failed/returned empty.
   # ollama-review.sh reads the prompt from stdin, calls the OpenAI-compat
   # endpoint, and returns the model's raw content (JSON array expected).
   cli:
@@ -40,6 +55,14 @@ pricing:
   "qwen3.5:cloud":       { input: 0.00, output: 0.00 }
   "minimax-m2.7:cloud":  { input: 0.00, output: 0.00 }
   "gemma4:31b-cloud":    { input: 0.00, output: 0.00 }
+  # External-agent tools (reviewers.external_agents) — keyed by tool name,
+  # not model; telemetry's "model" field becomes the tool name on
+  # external_agents failover (see lib/agents.sh). Free (own subscriptions).
+  "cursor-agent": { input: 0.00, output: 0.00 }
+  "omp":          { input: 0.00, output: 0.00 }
+  "codex":        { input: 0.00, output: 0.00 }
+  "opencode":     { input: 0.00, output: 0.00 }
+  "kilo":         { input: 0.00, output: 0.00 }
   # Local failover models (reviewers.cli)
   "qwen3-coder:30b":  { input: 0.00, output: 0.00 }
   "qwen2.5-coder:7b": { input: 0.00, output: 0.00 }

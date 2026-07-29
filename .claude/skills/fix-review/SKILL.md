@@ -4,7 +4,7 @@ description: Multi-model PR review pipeline. Dispatches the diff concurrently to
 user-invocable: true
 argument-hint: "[pr-number]"
 metadata:
-  version: "2.2.0"
+  version: "2.3.0"
   domain: code-review
   scope: quality-gate
   debt-level: balanced
@@ -70,8 +70,14 @@ Note: `config.yaml` uses `round_1/round_2/round_3` keys for historical reasons �
 are concurrent dispatches, not sequential rounds. The models to use are always read from
 `config.yaml`; do not hardcode model names here.
 
-CLI failover tier (config.yaml `reviewers.cli`) engages automatically when the Ollama
-cloud endpoint probe fails — same flow, local models instead of cloud.
+Three tiers, tried in order per round when the one above it is unavailable:
+1. **Cloud** (`reviewers.openrouter`) — the default path.
+2. **External agents** (`reviewers.external_agents`) — free-tier CLI tools
+   (cursor-agent, omp, codex, opencode, kilo; see `.claude/skills/lib/agents.sh`),
+   engages when the Ollama cloud endpoint is unreachable or has none of the
+   configured models loaded.
+3. **CLI** (`reviewers.cli`, actually local Ollama despite the key name) —
+   last resort, engages only if every external agent above also failed.
 
 ## Step-by-step execution
 
@@ -161,7 +167,9 @@ comment reports.
 Read `.claude/skills/fix-review/config.yaml`. Extract:
 - `reviewers.openrouter.round_1/2/3` — cloud reviewer models
 - `openrouter_api_url` — Ollama endpoint (`http://localhost:11434/v1/chat/completions`)
-- `reviewers.cli` — local failover models (used if cloud endpoint unreachable)
+- `reviewers.external_agents` — ordered list of free-tier CLI tools, tier 2
+- `reviewers.cli` — local failover models, tier 3 (used if cloud AND every
+  external agent failed)
 
 First, extract the actual model names you just read from `config.yaml`:
 ```bash
@@ -176,8 +184,8 @@ Then probe the endpoint:
 MODELS_JSON=$(curl -sf --max-time 5 http://localhost:11434/v1/models 2>/dev/null)
 
 if [ -z "$MODELS_JSON" ]; then
-  TIER="cli"
-  echo "⚠️  Ollama endpoint unreachable — using CLI tier"
+  TIER="external_agents"
+  echo "⚠️  Ollama endpoint unreachable — trying external_agents tier"
 else
   # Extract model IDs robustly (handles spaces after colon in JSON)
   AVAILABLE=$(echo "$MODELS_JSON" | grep -oP '"id"\s*:\s*"\K[^"]+')
@@ -186,14 +194,19 @@ else
      || echo "$AVAILABLE" | grep -qF "$ROUND3"; then
     TIER="cloud"
   else
-    TIER="cli"
-    echo "⚠️  Ollama online but none of the configured models loaded — using CLI tier"
+    TIER="external_agents"
+    echo "⚠️  Ollama online but none of the configured models loaded — trying external_agents tier"
     echo "    Expected one of: $ROUND1 | $ROUND2 | $ROUND3"
   fi
 fi
 ```
 
-If `TIER="cli"` for any reason → use CLI failover tier (`reviewers.cli`).
+If `TIER="cloud"`, Step 3 dispatches via `ollama-review.sh` as before. Otherwise
+(`TIER="external_agents"`), Step 3 tries each dispatched round against
+`reviewers.external_agents` (`.claude/skills/lib/agents.sh`) first; a round
+falls through to `reviewers.cli` (tier 3, real local Ollama despite the `cli`
+key name) only if every external agent for that round also failed/returned
+empty.
 
 ### 3. Concurrent review dispatch
 
@@ -246,19 +259,53 @@ ${INSTRUCTIONS}
 $(cat baseline.diff)"
 ```
 
-Send the prompt to each reviewer model via `ollama-review.sh`. The number of
-models called depends on `REVIEWER_COUNT` from Step 1.5:
+Send the prompt to each reviewer model, routed through whichever tier is
+active (`$TIER` from Step 2). The external-agent adapters read their prompt
+from a file, not a shell variable, so write it once:
+
+```bash
+PROMPT_FILE=$(mktemp)
+printf '%s' "$PROMPT" > "$PROMPT_FILE"
+
+source .claude/skills/lib/agents.sh
+RUN_DIR=$(mktemp -d)
+
+# CLI2/CLI3 not needed if REVIEWER_COUNT=1. reviewers.cli has no round_N
+# keys (unlike reviewers.openrouter) — map positionally, list order = round order.
+CLI1="<exact reviewers.cli[0] model>"   # e.g. qwen3-coder:30b
+CLI2="<exact reviewers.cli[1] model>"   # e.g. qwen2.5-coder:7b
+CLI3="<exact reviewers.cli[2] model>"   # e.g. granite3.3:8b
+
+dispatch_round() {
+  local n="$1" cloud_model="$2" cli_model="$3"
+  case "$TIER" in
+    cloud)
+      cat "$PROMPT_FILE" | bash .claude/skills/fix-review/ollama-review.sh "$cloud_model"
+      ;;
+    external_agents)
+      if try_external_agents "$n" "$PROMPT_FILE" .claude/skills/fix-review/config.yaml "$RUN_DIR"; then
+        cat "$RUN_DIR/round_${n}.raw.json"
+      else
+        echo "warn: round $n — all external_agents failed, falling back to local Ollama (cli tier)" >&2
+        cat "$PROMPT_FILE" | bash .claude/skills/fix-review/ollama-review.sh "$cli_model"
+      fi
+      ;;
+  esac
+}
+```
+
+The number of rounds called depends on `REVIEWER_COUNT` from Step 1.5:
 
 **`REVIEWER_COUNT=3`** (diff touches a security-relevant surface — default, unchanged behavior):
 ```bash
-R1=$(echo "$PROMPT" | bash .claude/skills/fix-review/ollama-review.sh <round_1_model>)
-R2=$(echo "$PROMPT" | bash .claude/skills/fix-review/ollama-review.sh <round_2_model>)
-R3=$(echo "$PROMPT" | bash .claude/skills/fix-review/ollama-review.sh <round_3_model>)
+R1=$(dispatch_round 1 "$ROUND1" "$CLI1")
+R2=$(dispatch_round 2 "$ROUND2" "$CLI2")
+R3=$(dispatch_round 3 "$ROUND3" "$CLI3")
 ```
 
 **`REVIEWER_COUNT=1`** (no security-relevant surface touched):
 ```bash
-R1=$(echo "$PROMPT" | bash .claude/skills/fix-review/ollama-review.sh <round_1_model>)
+R1=$(dispatch_round 1 "$ROUND1" "$CLI1")
 ```
 Skip R2/R3 entirely — do not call them, and treat their findings as absent
 (not as empty-array votes) when tallying.
@@ -266,6 +313,10 @@ Skip R2/R3 entirely — do not call them, and treat their findings as absent
 Each call returns a JSON array (empty `[]` on parse failure — safe degradation).
 The JSON output contract (raw array, `file/line/layer/severity/description`)
 is preserved — the project-facts block changes input context, not parse contract.
+Record which tier actually produced each round's result (cloud model name,
+external-agent tool name from `$RUN_DIR/round_${n}.failover`, or cli model
+name) — Step 6's PR comment reports this per round, not just the configured
+cloud model.
 
 ### 4. Tally findings
 
@@ -319,9 +370,14 @@ gh issue create --title "..." --body "..."
 
 ### 6. Post PR comment
 
-Post a single collapsible summary. The `Models:` line lists only the models
+Post a single collapsible summary. The `Models:` line lists only the rounds
 actually dispatched (per `REVIEWER_COUNT` from Step 1.5) — never claim three
-reviewers ran when only `round_1` was called:
+reviewers ran when only `round_1` was called — and names **what actually
+produced each round's result**, not just the configured cloud model: if
+`$TIER=cloud`, that's the cloud model; if a round fell through to
+`external_agents`, name the tool that succeeded (from
+`$RUN_DIR/round_${n}.failover`); if it fell all the way to `cli`, name the
+local model:
 
 ```
 <details>
@@ -332,15 +388,17 @@ reviewers ran when only `round_1` was called:
 | src/components/Stage2.jsx:42 | 2/3 | 2 | error | CONFIRM | missing null check on metadata.label_to_model |
 | src/api.js:87 | 1/3 | 5 | sugg | DISMISS | style — not flagged by pyramid |
 
-Models: <round_1_model>, <round_2_model>, <round_3_model> (from config.yaml)
+Models: round_1=<round_1_model>, round_2=<round_2_model>, round_3=<round_3_model> (from config.yaml)
 Arbiter: Claude Sonnet 4.6
 
 </details>
 ```
 
 For a `REVIEWER_COUNT=1` pass (no security-relevant surface touched), the
-`Models:` line lists only `<round_1_model>`, and vote counts read `N/1`
-instead of `N/3`.
+`Models:` line lists only round 1, and vote counts read `N/1` instead of
+`N/3`. Example of a mixed-tier pass: `Models: round_1=cursor-agent (auto)
+[external_agents], round_2=minimax-m2.7:cloud [cloud], round_3=granite3.3:8b
+[cli]`.
 
 ### 7. Merge decision
 
