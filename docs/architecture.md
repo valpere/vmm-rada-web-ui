@@ -131,8 +131,15 @@ isLoading              // True while an SSE stream is active
 
 On replay (loading a saved conversation), persisted messages are augmented
 with fresh `loading`/`error`/`pendingClarification` defaults and a
-`stage2Kind` derived from `metadata?.council_type` (unrecognised/legacy
-values default to `peer_ranking`).
+`stage2Kind` derived by `deriveStage2Kind(stage2, metadata)` (gh#94). The
+backend doesn't persist `kind` itself, so this infers it from which
+strategy-specific sub-object is present on `metadata` (`vote_tally`,
+`rank_refine`, `debate`, `moa_aggregator`, `delphi`); `peer_ranking` vs.
+`role_stub` — the two kinds with no distinguishing sub-object — are told
+apart by whether `stage2` is a non-empty array. This shape-based inference
+replaced an earlier `council_type`-name lookup, which broke because the
+backend allows multiple custom-named registrations to share one strategy
+(e.g. `"factual-majority"` and `"creative-majority"` both map to `vote_tally`).
 
 Only `App.jsx` writes to this shape — components read it via props.
 
