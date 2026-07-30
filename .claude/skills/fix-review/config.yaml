@@ -24,6 +24,7 @@ reviewers:
   # prompt-wording issue).
   external_agents:
     - { tool: cursor-agent, model: auto }
+    - { tool: agy, model: "Gemini 3.5 Flash (Low)" }
     - { tool: omp }
     - { tool: codex }
     - { tool: opencode, model: "opencode/nemotron-3-ultra-free" }
@@ -59,6 +60,7 @@ pricing:
   # not model; telemetry's "model" field becomes the tool name on
   # external_agents failover (see lib/agents.sh). Free (own subscriptions).
   "cursor-agent": { input: 0.00, output: 0.00 }
+  "agy":          { input: 0.00, output: 0.00 }
   "omp":          { input: 0.00, output: 0.00 }
   "codex":        { input: 0.00, output: 0.00 }
   "opencode":     { input: 0.00, output: 0.00 }
