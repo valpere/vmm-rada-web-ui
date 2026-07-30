@@ -57,3 +57,4 @@ graphify-out/
 *.njsproj
 *.sln
 *.sw?
+tmp/
