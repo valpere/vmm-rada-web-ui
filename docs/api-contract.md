@@ -159,13 +159,22 @@ terminal state, all at once (waits for all stages to complete). The frontend
 uses the streaming endpoint instead; this one exists for non-streaming
 integrations.
 
-**Errors:** `400` (invalid body/UUID), `404` (not found), `409`, `503` (quorum
-not met), `500`. **409 has three distinct causes, discriminated only by the
-`error` message string — there is no `code` field on the wire (verified
-against backend source; a prior version of this doc claimed one existed).**
-`src/api.js`'s `ApiError.code` is derived client-side from the message string
-(gh#95) — a nonexistent-code fallback previously misclassified the other two
-causes as conversation-closed:
+Error shape (all pre-response errors on both endpoints):
+```json
+{ "error": "human-readable message" }
+```
+
+**Errors:** `400` (invalid body/UUID, or neither/both of `content`/`answers`
+set), `404` (not found), `409`, `503` (Stage 1 quorum not met —
+`"council quorum not met"`), `500` (a pre-pipeline storage failure, or a
+pipeline-run failure — Stage 0 clarification, Stage 3 chairman, or
+save-assistant-message — all share the message `"internal server error"` and
+are indistinguishable from each other on the wire). **409 has three distinct
+causes, discriminated only by the `error` message string — there is no
+`code` field on the wire (verified against backend source; a prior version
+of this doc claimed one existed).** `src/api.js`'s `ApiError.code` is derived
+client-side from the message string (gh#95) — a nonexistent-code fallback
+previously misclassified the other two causes as conversation-closed:
 | `error` message (wire) | Frontend `ApiError.code` | Cause |
 |---|---|---|
 | `"conversation is closed"` | `conversation_closed` | Message/answers sent to a closed conversation |
@@ -193,13 +202,20 @@ X-Accel-Buffering: no
 See [streaming.md](./streaming.md) for the full event sequence and payload
 shapes, including the Stage 0 clarification round-trip.
 
-**Errors:** `400` (invalid body/UUID), `404` (not found), `409`, `503` (quorum
-not met), `500` — all as pre-SSE HTTP responses (SSE headers are not yet
-written when these fire). The three 409 causes are the same as [Send Message
+**Errors:** `400` (invalid body/UUID, or neither/both of `content`/`answers`
+set), `404` (not found), `409`, `500` (SSE streaming not supported by the
+server, or a pre-pipeline storage failure) — all as pre-SSE HTTP responses,
+shape `{ "error": "..." }` (SSE headers are not yet written when these
+fire). The three 409 causes are the same as [Send Message
 (Blocking)](#send-message-blocking) above, discriminated by `error` message
-string, no `code` field. Pipeline-run failures that occur *after* SSE headers
-are written (quorum, chairman failure, storage) surface as a post-SSE `error`
-event instead of an HTTP status — see [streaming.md](./streaming.md#error).
+string, no `code` field.
+
+**Quorum-not-met (`503` on the blocking endpoint) never appears as an HTTP
+status here** — SSE headers are always written before the pipeline runs, so
+this and every other pipeline-run failure (Stage 0 clarification, Stage 3
+chairman, save-assistant-message) surface only as a post-SSE `error` event,
+shape `{ "type": "error", "message": "..." }` — see
+[streaming.md](./streaming.md#error).
 
 ---
 
