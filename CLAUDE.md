@@ -79,7 +79,7 @@ The Go backend lives at [`vmm-rada`](https://github.com/valpere/vmm-rada). Docs:
 
 The backend must be running before starting the dev server. CORS is configured on the backend for `localhost:5173`.
 
-Backend config env vars relevant to frontend: `RADA_MODELS` (default-strategy model list), `CHAIRMAN_MODEL` (Stage 3 synthesizer), `TITLE_MODEL` (title generation, runs in parallel), `DEFAULT_RADA_TYPE` (which strategy `council_type: "default"` resolves to), `CLARIFICATION_MAX_ROUNDS` (enables/limits Stage 0, `0` disables it). Port is configurable via `PORT` (default 8001).
+Backend config env vars relevant to frontend: `RADA_MODELS` (default-strategy model list), `CHAIRMAN_MODEL` (Stage 3 synthesizer), and `DEFAULT_RADA_TYPE` (which strategy `council_type: "default"` resolves to) only take effect when the backend's `COUNCIL_CONFIG_PATH` is explicitly emptied — by default vmm-rada ships `configs/council.yaml` as the source of truth for all 7 strategies' model rosters, which silently overrides these env vars (no effect on frontend request/response shapes; `council_type` wire values are unchanged). Title generation is local truncation of Stage 3's content (`truncateTitle`), not a configurable model — there is no `TITLE_MODEL`. `CLARIFICATION_MAX_ROUNDS` (enables/limits Stage 0, `0` disables it) and `PORT` (default 8001) are unaffected by the above and always apply.
 
 ## Workflow
 
