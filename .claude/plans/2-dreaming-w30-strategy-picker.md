@@ -44,6 +44,10 @@ available" given the backlog was otherwise empty.
       (`msg.error`), not a silent failure.
 - [ ] `CLAUDE.md`'s "Known gaps" entry for the strategy picker is removed
       once this ships.
+- [ ] The picker sends a value from the fixed enum of 7 known
+      `council_type` strings — never free text — to avoid arbitrary
+      `council_type` injection (flagged by security-reviewer during this
+      plan's pre-PR review).
 
 ## Implementation
 
