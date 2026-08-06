@@ -81,6 +81,20 @@ function mergeRoundIntoMessage(msg, event) {
   msg.stage2Kind = normaliseStage2Kind(event.kind);
 }
 
+// The 7 backend deliberation strategies, as documented in
+// docs/streaming.md's kind table. Wire values are stable per the backend's
+// configs/council.yaml header comment — hardcoded here rather than fetched
+// from a discovery endpoint (the backend has none; see gh#124).
+const COUNCIL_TYPES = [
+  { value: 'default', label: 'Default' },
+  { value: 'role-based', label: 'Role-Based' },
+  { value: 'majority', label: 'Majority Vote' },
+  { value: 'generate-rank-refine', label: 'Generate → Rank → Refine' },
+  { value: 'debate', label: 'Multi-Agent Debate' },
+  { value: 'moa', label: 'Mixture of Agents' },
+  { value: 'delphi', label: 'Delphi Panel' },
+];
+
 function App() {
   const [conversations, setConversations] = useState([]);
   const [currentConversationId, setCurrentConversationId] = useState(null);
@@ -88,6 +102,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') ?? 'dark');
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
+  const [councilType, setCouncilType] = useState('default');
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -175,6 +190,13 @@ function App() {
     if (currentConversationId) {
       loadConversation(currentConversationId);
     }
+  }, [currentConversationId]);
+
+  // Reset the strategy picker to the default on conversation switch — a
+  // selection made for one conversation should not silently carry over to
+  // the next. Persists across messages within the same conversation.
+  useEffect(() => {
+    setCouncilType('default');
   }, [currentConversationId]);
 
   const handleNewConversation = async () => {
@@ -321,7 +343,7 @@ function App() {
       const handlers = makeStreamHandlers(updateLast);
       await api.sendMessageStream(
         currentConversationId,
-        { content, council_type: 'default' },
+        { content, council_type: councilType },
         (eventType, event) => handlers[eventType]?.(event)
       );
     } catch (error) {
@@ -452,6 +474,9 @@ function App() {
         isLoading={isLoading}
         sidebarOpen={sidebarOpen}
         onToggleSidebar={toggleSidebar}
+        councilTypes={COUNCIL_TYPES}
+        selectedCouncilType={councilType}
+        onCouncilTypeChange={setCouncilType}
       />
     </div>
   );

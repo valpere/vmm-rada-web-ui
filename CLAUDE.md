@@ -130,13 +130,6 @@ scheduled self-review (drift from `context-essentials.md`, recurring
 the systemd timer setup. Reports land in `.claude/dreaming/reports/`,
 applied via `/apply-dreaming`.
 
-## Known gaps
-
-- **No strategy picker in the UI.** `handleSendMessage` hardcodes
-  `council_type: "default"`. All seven strategies are already supported by
-  the Stage 2 dispatcher and the message state shape — only the
-  request-composition and any strategy-selection UI are missing.
-
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

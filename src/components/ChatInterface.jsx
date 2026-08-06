@@ -17,6 +17,9 @@ export default function ChatInterface({
   isConversationClosed,
   sidebarOpen,
   onToggleSidebar,
+  councilTypes,
+  selectedCouncilType,
+  onCouncilTypeChange,
 }) {
   const [input, setInput] = useState('');
   const [context, setContext] = useState('');
@@ -186,6 +189,24 @@ export default function ChatInterface({
             />
           )}
         </div>
+
+        <div className="strategy-picker">
+          <label htmlFor="council-type-select" className="strategy-picker-label">
+            Strategy
+          </label>
+          <select
+            id="council-type-select"
+            className="strategy-picker-select"
+            value={selectedCouncilType}
+            onChange={(e) => onCouncilTypeChange(e.target.value)}
+            disabled={isConversationClosed || isLoading || !!conversation.messages.at(-1)?.pendingClarification}
+          >
+            {councilTypes.map((ct) => (
+              <option key={ct.value} value={ct.value}>{ct.label}</option>
+            ))}
+          </select>
+        </div>
+
         <div className="input-row">
           <textarea
             ref={textareaRef}

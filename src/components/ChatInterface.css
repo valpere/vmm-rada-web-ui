@@ -213,6 +213,38 @@
   cursor: not-allowed;
 }
 
+.strategy-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.strategy-picker-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.strategy-picker-select {
+  padding: 4px 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.strategy-picker-select:focus {
+  border-color: var(--border-focus);
+  outline: none;
+}
+
+.strategy-picker-select:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .input-row {
   display: flex;
   align-items: flex-end;
