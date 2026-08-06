@@ -17,6 +17,12 @@ function baseProps(overrides = {}) {
     isConversationClosed: false,
     sidebarOpen: true,
     onToggleSidebar: vi.fn(),
+    councilTypes: [
+      { value: 'default', label: 'Default' },
+      { value: 'role-based', label: 'Role-Based' },
+    ],
+    selectedCouncilType: 'default',
+    onCouncilTypeChange: vi.fn(),
     ...overrides,
   };
 }
@@ -192,6 +198,40 @@ describe('ChatInterface', () => {
     ).toBeInTheDocument();
     // Stage0 itself renders the question text and its own submit/skip controls.
     expect(screen.getByText('Which framework?')).toBeInTheDocument();
+  });
+
+  it('renders the strategy picker with the provided options and reflects the selected value', () => {
+    render(
+      <ChatInterface
+        {...baseProps({ conversation: makeConversation(), selectedCouncilType: 'role-based' })}
+      />,
+    );
+    const select = screen.getByLabelText('Strategy');
+    expect(select).toHaveValue('role-based');
+    expect(screen.getByRole('option', { name: 'Default' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Role-Based' })).toBeInTheDocument();
+  });
+
+  it('calls onCouncilTypeChange when the strategy picker selection changes', async () => {
+    const onCouncilTypeChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <ChatInterface
+        {...baseProps({ conversation: makeConversation(), onCouncilTypeChange })}
+      />,
+    );
+
+    await user.selectOptions(screen.getByLabelText('Strategy'), 'role-based');
+    expect(onCouncilTypeChange).toHaveBeenCalledWith('role-based');
+  });
+
+  it('disables the strategy picker when isConversationClosed', () => {
+    render(
+      <ChatInterface
+        {...baseProps({ conversation: makeConversation(), isConversationClosed: true })}
+      />,
+    );
+    expect(screen.getByLabelText('Strategy')).toBeDisabled();
   });
 
   it('shows the sidebar-open button only when the sidebar is closed', () => {
