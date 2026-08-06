@@ -66,6 +66,13 @@ Apply when appropriate:
 - Cryptic single-letter names → descriptive names
 - Only rename when clearly better and unambiguous
 
+## Documentation Parity Checks
+
+- If a change adds a CLI invocation (e.g. `yq`, `jq`, `fzf`, `curl`) or
+  version-pins an existing one under `.claude/skills/lib/` or any shared
+  bash helper, verify the consuming `SKILL.md` prerequisites block lists
+  the dependency. Flag if missing.
+
 ## Safety Rules — When NOT to Simplify
 
 Do not simplify:
