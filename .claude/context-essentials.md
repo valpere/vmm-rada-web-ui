@@ -20,6 +20,21 @@ contract and require Tech Lead override.
 4. **`react-markdown` is the only renderer for LLM output.** Inserting raw
    HTML is forbidden — XSS risk with LLM-generated content.
 
+## Architecture (immutable) — clarification
+
+`App.jsx`'s `updateLast` (shared via `makeStreamHandlers`) spreads
+`messages` immutably at the outer level, then mutates the inner
+`last` object inside the updater — this is the pattern, not a
+violation of rule #3:
+
+```js
+setCurrentConversation((prev) => {
+  const messages = [...prev.messages];   // React-visible boundary
+  updater(messages[messages.length - 1]); // inner mutation, by design
+  return { ...prev, messages };
+});
+```
+
 ## Stack constraints
 
 - React 19 + Vite 8, plain JavaScript. No TypeScript, no Redux, no Context API.
@@ -29,33 +44,16 @@ contract and require Tech Lead override.
 
 ## Workflow gates
 
-```
-/backlog → Tech Lead (APPROVED) → gh issue create → plan file deleted
-    → /ship → code-generator → [/fix-review rounds] → squash merge
-```
+`/backlog → Tech Lead (APPROVED) → gh issue create → plan file deleted → /ship → code-generator → [/fix-review rounds] → squash merge`
 
-- **Plans** live in `.claude/plans/` with frontmatter (type, priority, labels,
-  github_issue). After issue creation, delete the plan file.
-- **Tech Lead approval** is the gate before any code generation.
-- **PRs** are squash-merged. Never merge commits or rebase-merge.
-- **`/fix-review`** runs parallel multi-model review (Ollama, see `config.yaml`)
-  + Claude arbiter. **Not** Copilot-based — Copilot was dropped from the org
-  workflow 2026-05-13; never wait for it.
-- **`/doubt-driven-development`** is the in-flight adversarial review gate for
-  non-trivial decisions (architectural choices, irreversible ops, security-
-  sensitive logic, unfamiliar code) **before they stand** — complementary to
-  `/fix-review` (post-hoc verdict on a finished artifact). Apply on
-  `/backlog` plans whose risks/blast-radius match the skill's "non-trivial"
-  list, not on mechanical edits.
+- Plans live in `.claude/plans/`; delete after issue creation.
+- Tech Lead approval gates code generation. PRs are squash-merged only.
+- `/fix-review` = parallel multi-model review + Claude arbiter (not Copilot — dropped 2026-05-13).
+- `/doubt-driven-development` = in-flight adversarial review for non-trivial decisions (architecture, irreversible ops, security-sensitive, unfamiliar code) — apply on `/backlog` plans matching its "non-trivial" list.
 
 ## Docs discipline
 
-- **Mark planned vs current explicitly.** When a doc describes a feature
-  not yet wired into code, prefix the section with `PLANNED:` or
-  `NOT YET WIRED:`. Never write future-tense behaviour as if it were
-  current.
-- **Update `CLAUDE.md` and `docs/*.md` together** when a feature lands.
-  Drift between these is a common review comment.
+- Mark planned-but-unwired features with `PLANNED:`/`NOT YET WIRED:` prefixes; update `CLAUDE.md` and `docs/*.md` together when a feature lands (drift is a common review comment).
 
 ## Banned patterns
 
