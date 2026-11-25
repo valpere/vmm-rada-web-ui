@@ -174,8 +174,8 @@ Read `.claude/skills/fix-review/config.yaml`. Extract:
 First, extract the actual model names you just read from `config.yaml`:
 ```bash
 # Use the exact model name strings from reviewers.openrouter.round_1/2/3
-ROUND1="<exact round_1 model string>"   # e.g. qwen3.5:cloud
-ROUND2="<exact round_2 model string>"   # e.g. minimax-m2.7:cloud
+ROUND1="<exact round_1 model string>"   # e.g. deepseek-v4.1-flash:cloud
+ROUND2="<exact round_2 model string>"   # e.g. minimax-m3:cloud
 ROUND3="<exact round_3 model string>"   # e.g. gemma4:31b-cloud
 ```
 
@@ -213,7 +213,7 @@ empty.
 Build the review prompt combining the baseline diff with instructions. The
 prompt opens with an immutable **Project facts** block so reviewers stop
 asserting verifiable facts — this was the source of 6 of 14 dismissed
-findings in the 2026-W30 dreaming corpus ("project has no test suite",
+findings in a 2026-07 review of dismissed findings ("project has no test suite",
 "Vite 7→8 possibly unverified", "future date 2026-07-07" 13 days past,
 etc.).
 
@@ -222,7 +222,7 @@ hardcoded — the skill is read once and reused across many sessions, so
 hardcoding would itself become a fabricated-fact source. Version facts use
 "current major" wording so the block survives Vite 9 / React 20 without a
 follow-up edit. Total preamble stays under ~1k tokens — token budget
-matters for `qwen3.5:cloud`, which has been observed to return empty
+matters for cloud reviewers, which have been observed to return empty
 content on large prompts (see `ollama-review.sh:18-21`).
 
 ```bash
@@ -416,7 +416,7 @@ Arbiter: Claude Sonnet 4.6
 For a `REVIEWER_COUNT=1` pass (no security-relevant surface touched), the
 `Models:` line lists only round 1, and vote counts read `N/1` instead of
 `N/3`. Example of a mixed-tier pass: `Models: round_1=cursor-agent (auto)
-[external_agents], round_2=minimax-m2.7:cloud [cloud], round_3=granite3.3:8b
+[external_agents], round_2=minimax-m3:cloud [cloud], round_3=granite3.3:8b
 [cli]`.
 
 ### 7. Merge decision

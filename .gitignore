@@ -31,8 +31,6 @@ coverage/
 !.claude/skills/**
 !.claude/hooks/
 !.claude/hooks/**
-!.claude/dreaming/
-!.claude/dreaming/**
 !.claude/context-essentials.md
 !.claude/settings.json
 # Keep ephemeral/local/per-machine files excluded:
@@ -43,6 +41,7 @@ coverage/
 .claude/sessions.db-wal
 .claude/sessions.db-shm
 .claude/session-log.md
+.claude/session-state.md
 
 # /self-learn pattern data — local learning log, not source
 _patterns/*.jsonl
