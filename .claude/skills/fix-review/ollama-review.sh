@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # CLI-tier helper for /fix-review.
-# Reads the review prompt from stdin, calls a local Ollama model via the
-# OpenAI-compat endpoint, and writes the model's raw content to stdout.
+# Reads the review prompt from stdin, calls an Ollama model (local or :cloud
+# via the local daemon) through the native /api/chat endpoint, and writes
+# the model's raw content to stdout.
 # The parent skill expects a JSON array on stdout; non-JSON output is treated
 # as 0 findings for this round (safe degradation).
 #
@@ -19,15 +20,22 @@ PROMPT=$(cat)
 # error, just a truncated/empty response body) — observed repeatedly with
 # qwen3.5:cloud on full-diff review prompts. Retry once with a smaller
 # max_tokens cap before giving up.
+#
+# Native /api/chat with think:false, not the OpenAI-compat /v1 endpoint:
+# 2026-11-25 (PR #170) deepseek-v4.1-flash:cloud and minimax-m3:cloud spent
+# the whole budget on hidden reasoning via /v1 and returned empty content on
+# both attempts -> "[]" -> the round looked clean. With think:false both
+# returned a valid JSON array (851 / 1524 tokens). Non-thinking models
+# (gemma4, local granite/qwen-coder) accept think:false unchanged.
 call_model() {
   local max_tokens="$1"
   curl -sf --max-time 180 \
-    "${BASE_URL}/v1/chat/completions" \
+    "${BASE_URL}/api/chat" \
     -H "Content-Type: application/json" \
     -d "$(jq -n \
           --arg m "$MODEL" --arg sys "$SYS" --arg usr "$PROMPT" --argjson mt "$max_tokens" \
-          '{model:$m,messages:[{role:"system",content:$sys},{role:"user",content:$usr}],stream:false,max_tokens:$mt}')" \
-    | jq -r '.choices[0].message.content // empty'
+          '{model:$m,messages:[{role:"system",content:$sys},{role:"user",content:$usr}],stream:false,think:false,options:{num_predict:$mt}}')" \
+    | jq -r '.message.content // empty'
 }
 
 CONTENT=$(call_model 4096 || true)
