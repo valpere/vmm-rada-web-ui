@@ -1,6 +1,6 @@
 ---
-name: ship
-description: Implement a GitHub issue end-to-end — branch, code, tests, PR, /fix-review, merge, resolve. Without args, shows top 5 unblocked issues to select from. With issue number or title, ships that issue directly. One issue at a time.
+name: deliver
+description: Implement a GitHub issue end-to-end — branch, code, tests, PR, /fix-review, merge, resolve. Without args, shows top 5 unblocked issues to select from. With issue number or title, delivers that issue directly. One issue at a time.
 user-invocable: true
 argument-hint: "[issue-number | issue-title]"
 metadata:
@@ -10,7 +10,7 @@ metadata:
   debt-level: balanced
 ---
 
-# /ship
+# /deliver
 
 Implement one GitHub issue from selection to merged PR, then present the next.
 
@@ -30,11 +30,11 @@ select issue → branch → implement → pre-PR review (parallel) → pre-fligh
 
 ## Step 0: Select issue
 
-**`/ship <number>`** — fetch that issue directly, skip menu.
+**`/deliver <number>`** — fetch that issue directly, skip menu.
 
-**`/ship <title>`** — search open issues for a title match, skip menu if unambiguous.
+**`/deliver <title>`** — search open issues for a title match, skip menu if unambiguous.
 
-**`/ship` (no args)** — list the top 5 open, unblocked issues sorted by priority:
+**`/deliver` (no args)** — list the top 5 open, unblocked issues sorted by priority:
 
 ```bash
 gh issue list --repo valpere/vmm-rada-web-ui --state open \

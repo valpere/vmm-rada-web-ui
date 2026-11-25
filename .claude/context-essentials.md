@@ -44,7 +44,7 @@ setCurrentConversation((prev) => {
 
 ## Workflow gates
 
-`/backlog → Tech Lead (APPROVED) → gh issue create → plan file deleted → /ship → code-generator → [/fix-review rounds] → squash merge`
+`/backlog → Tech Lead (APPROVED) → gh issue create → plan file deleted → /deliver → code-generator → [/fix-review rounds] → squash merge`
 
 - Plans live in `.claude/plans/`; delete after issue creation.
 - Tech Lead approval gates code generation. PRs are squash-merged only.

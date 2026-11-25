@@ -20,7 +20,7 @@ Code Generator (YOU)  — implement
   ↓
 code-simplifier  — readability pass
   ↓
-/ship            — PR, /fix-review, merge
+/deliver         — PR, /fix-review, merge
 ```
 
 Never skip the parallel review step. Always launch security-reviewer and static-analysis simultaneously in a single Agent tool call batch.
