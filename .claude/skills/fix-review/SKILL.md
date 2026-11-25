@@ -223,7 +223,7 @@ hardcoding would itself become a fabricated-fact source. Version facts use
 "current major" wording so the block survives Vite 9 / React 20 without a
 follow-up edit. Total preamble stays under ~1k tokens — token budget
 matters for cloud reviewers, which have been observed to return empty
-content on large prompts (see `ollama-review.sh:18-21`).
+content on large prompts (see `ollama-review.sh:18-22`).
 
 ```bash
 # Project facts block (~6 bullets, ≤1k tokens). Keep terse — do not add examples.
