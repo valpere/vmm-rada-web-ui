@@ -1,6 +1,6 @@
 ---
 name: deliver
-description: Implement a GitHub issue end-to-end — branch, code, tests, PR, /fix-review, merge, resolve. Without args, shows top 5 unblocked issues to select from. With issue number or title, ships that issue directly. One issue at a time.
+description: Implement a GitHub issue end-to-end — branch, code, tests, PR, /fix-review, merge, resolve. Without args, shows top 5 unblocked issues to select from. With issue number or title, delivers that issue directly. One issue at a time.
 user-invocable: true
 argument-hint: "[issue-number | issue-title]"
 metadata:
