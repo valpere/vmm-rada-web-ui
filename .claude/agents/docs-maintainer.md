@@ -1,7 +1,7 @@
 ---
 name: docs-maintainer
 description: Use after significant changes are merged — new SSE event types, new REST endpoints, new architectural patterns, new CLI commands, or proposals resolved. Keeps CLAUDE.md, docs/, and .proposals.md accurate and consistent with the current codebase. Never modifies source code.
-tools: All tools
+tools: Read, Glob, Grep, Bash, Edit, Write, WebFetch
 model: sonnet
 color: cyan
 ---

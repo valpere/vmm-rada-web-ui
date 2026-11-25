@@ -82,12 +82,6 @@ Runs a 5-phase analysis: architecture violations, correctness issues, null-handl
 
 Backs its verdict with concrete, actionable findings and best-practice references.
 
-### `/apply-dreaming` — Apply weekly dreaming report
-
-**When to use:** Monday morning after the Sunday dreaming cron run produces a fresh report (`.claude/dreaming/reports/YYYY-W##.md`).
-
-Walks each finding interactively, routes load-bearing items through `/backlog` + Tech Lead, and leaves audit-trail annotations on the report.
-
 ### `/housekeeping` — Repo health check
 
 **When to use:** any time for a hygiene snapshot.
@@ -108,11 +102,11 @@ Spawns a fresh-context reviewer biased to disprove, not approve. Complements `/f
 
 **Wired into the workflow gate** (between `tech-lead` approval and `code-generator` in the Feature implementation pipeline below) so non-trivial decisions are reviewed *before* code generation, while course-correction is still cheap — not just after the fact as `/fix-review` does. Skip only for mechanical edits where the risk/blast-radius doesn't match the skill's "non-trivial" criteria.
 
-### `/session-end` — Write session summary
+### `/session-end` — Manual handoff
 
-**When to use:** manually, or let it auto-run on session Stop.
+**When to use:** manually, before deliberately starting a fresh context.
 
-Writes a summary to `.claude/session-log.md`.
+Writes or shows a handoff in `.claude/session-state.md` (gitignored). Nothing reads it automatically; open it in a new session only on request. To continue the same conversation, use `claude --continue` / `--resume`.
 
 ---
 

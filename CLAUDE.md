@@ -29,10 +29,10 @@ Test suite: `npm test` (Vitest + Testing Library). Single file:
 `npm run test:coverage` (writes `coverage/coverage-summary.json`, consumed
 by `/housekeeping`'s Check 7).
 
-`.claude/agents/`, `.claude/skills/`, `.claude/plans/`, `.claude/dreaming/`,
-and `.claude/context-essentials.md` are git-tracked (explicitly un-ignored
+`.claude/agents/`, `.claude/skills/`, `.claude/plans/`,
+`.claude/hooks/` and `.claude/context-essentials.md` are git-tracked (explicitly un-ignored
 in `.gitignore` — no manual symlink setup needed, they work on any clone).
-`.claude/settings.local.json` (session-recall/session-end hooks) and
+`.claude/settings.local.json` (session-index Stop hook) and
 `.claude/agent-memory/` (created lazily on first agent write) stay
 per-machine and are gitignored.
 
@@ -101,8 +101,7 @@ lists (includes `chore/` and `task(scope):`, which this file used to omit).
 - `/ship` — full issue lifecycle: branch → implement → pre-PR review → PR → `/fix-review` → merge → resolve → next
 - `/find-bugs` — 5-phase security/bug audit of current branch changes; report-only
 - `/improve` — research-first critic for plans and designs; SHIP IT / IMPROVE IT / RETHINK IT / KILL IT verdict
-- `/apply-dreaming` — walk the latest weekly dreaming report, apply high-confidence findings
-- `/session-end` — write today's session summary to `.claude/session-log.md` (also auto-runs on session Stop; this is the higher-quality manual version)
+- `/session-end` — write or show a manual handoff (`.claude/session-state.md`, gitignored) for a fresh context; never injected automatically, read only on request
 - `/doubt-driven-development` — subjects non-trivial decisions to a fresh-context adversarial review before they stand; in-flight, not a post-hoc PR verdict like `/fix-review`
 - `/housekeeping` — recurring repo-health check (stale branches, debug output, tracked secrets, framework version drift, CI coverage delta); read-only, pass/fail table
 - `/self-learn` — log mistakes/wins, auto-promote recurring patterns to hard rules in CLAUDE.md (behind explicit confirmation), run retrospectives
@@ -126,12 +125,9 @@ Agents get persistent memory in `.claude/agent-memory/<agent-name>/`, created
 lazily the first time an agent writes to it — the directory won't exist on
 a fresh clone.
 
-**Session recall & dreaming:** `/recall <query>` (user-level skill) searches
-past session transcripts semantically. `.claude/dreaming/` runs a weekly
-scheduled self-review (drift from `context-essentials.md`, recurring
-`/fix-review` themes, stale plans) — see `.claude/dreaming/README.md` for
-the systemd timer setup. Reports land in `.claude/dreaming/reports/`,
-applied via `/apply-dreaming`.
+**Session recall:** `/recall <query>` (user-level skill) searches past session
+transcripts semantically; the `session-index.sh` Stop hook keeps the index
+current. To continue a conversation use `claude --continue` / `--resume`.
 
 ## Self-Learning Hard Rules
 
