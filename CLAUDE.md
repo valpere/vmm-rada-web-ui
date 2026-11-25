@@ -98,7 +98,7 @@ lists (includes `chore/` and `task(scope):`, which this file used to omit).
 **Skills** (invoke with `/skill-name`):
 - `/backlog` — show top 5 backlog items or plan a specific task; reads affected files, writes a plan file, offers to create a GitHub issue
 - `/fix-review` — multi-model PR review (3 concurrent Ollama models + Claude arbiter, see `.claude/skills/fix-review/config.yaml`); merges when clean. Not Copilot-based.
-- `/ship` — full issue lifecycle: branch → implement → pre-PR review → PR → `/fix-review` → merge → resolve → next
+- `/deliver` — full issue lifecycle: branch → implement → pre-PR review → PR → `/fix-review` → merge → resolve → next
 - `/find-bugs` — 5-phase security/bug audit of current branch changes; report-only
 - `/improve` — research-first critic for plans and designs; SHIP IT / IMPROVE IT / RETHINK IT / KILL IT verdict
 - `/session-end` — write or show a manual handoff (`.claude/session-state.md`, gitignored) for a fresh context; never injected automatically, read only on request
@@ -107,7 +107,7 @@ lists (includes `chore/` and `task(scope):`, which this file used to omit).
 - `/self-learn` — log mistakes/wins, auto-promote recurring patterns to hard rules in CLAUDE.md (behind explicit confirmation), run retrospectives
 
 **Dependabot PRs** are handled by the global `dependabot-reviewer` agent
-(`~/.claude/agents/dependabot-reviewer.md`), not `/fix-review` or `/ship`.
+(`~/.claude/agents/dependabot-reviewer.md`), not `/fix-review` or `/deliver`.
 
 **Agents** (invoked via `Agent` tool):
 - `tech-lead` — architectural authority; reviews plans before implementation and code before merging; enforces SSE adapter boundary, App.jsx state model, and security rules

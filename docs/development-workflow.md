@@ -9,7 +9,7 @@ This document describes the full development process for the VMM Rada frontend �
 | Actor | What it is | How it works |
 |-------|-----------|--------------|
 | **Human** | The engineer driving the session | Types commands; approves agent plans; selects issues |
-| **Skill** | A slash command (`/backlog`, `/ship`, …) | A SKILL.md file loaded by Claude Code; runs as a prompt macro in the main thread |
+| **Skill** | A slash command (`/backlog`, `/deliver`, …) | A SKILL.md file loaded by Claude Code; runs as a prompt macro in the main thread |
 | **Agent** | A specialised subprocess | An agent file (`.claude/agents/<name>.md`) launched via the `Agent` tool; runs in its own context |
 
 Skills and agents are different invocation mechanisms for Claude. Skills run in the same conversation context. Agents run in isolated sub-conversations and return a result.
@@ -36,14 +36,14 @@ All skills are invoked with `/skill-name`. They are defined in `.claude/skills/`
 5. Offers to create a GitHub issue; writes the issue; deletes the plan file (issue becomes source of truth)
 6. **Does not write any code** — confirmation required before implementation begins
 
-### `/ship` — Full issue lifecycle
+### `/deliver` — Full issue lifecycle
 
 **When to use:** to implement, PR, review, and merge a single issue end-to-end.
 
 **Entry points:**
-- `/ship` — list the top 5 open unblocked issues; wait for selection
-- `/ship <number>` — pick an issue by GitHub number
-- `/ship <title>` — search issues by title; confirm best match
+- `/deliver` — list the top 5 open unblocked issues; wait for selection
+- `/deliver <number>` — pick an issue by GitHub number
+- `/deliver <title>` — search issues by title; confirm best match
 
 **Flow:**
 1. Pick issue → branch off `main`
@@ -153,7 +153,7 @@ Updates `CLAUDE.md` and `docs/`. Never modifies source code.
 ### `security-reviewer` — Security audit
 
 **When invoked:**
-- `/ship` calls it in parallel with `static-analysis` before creating the PR
+- `/deliver` calls it in parallel with `static-analysis` before creating the PR
 - Can be invoked manually to audit any recently changed files
 
 Report-only. Checks: XSS via LLM output rendering, API URL injection, SSE stream parsing safety, hardcoded secrets, CORS, sensitive data exposure.
@@ -161,7 +161,7 @@ Report-only. Checks: XSS via LLM output rendering, API URL injection, SSE stream
 ### `static-analysis` — ESLint enforcement
 
 **When invoked:**
-- `/ship` calls it in parallel with `security-reviewer` before creating the PR
+- `/deliver` calls it in parallel with `security-reviewer` before creating the PR
 - Can be invoked manually when lint fails
 
 Applies cosmetic fixes only (unused imports, unused variables). Flags semantic violations for escalation. One pass; reports remaining violations; never changes runtime behaviour.
@@ -214,7 +214,7 @@ code-generator
     ↓ findings addressed
 code-simplifier
     ↓ readability pass
-/ship (or manual PR)
+/deliver (or manual PR)
     ↓ PR created
 /fix-review (multi-model + arbiter)
     ↓
@@ -236,7 +236,7 @@ squash merge
 ### Dependabot pipeline
 
 Handled by the global `dependabot-reviewer` agent (`~/.claude/agents/dependabot-reviewer.md`),
-not `/fix-review` or `/ship` — risk-based SemVer triage, separate from this
+not `/fix-review` or `/deliver` — risk-based SemVer triage, separate from this
 repo's PR-quality pipeline.
 
 ---
@@ -375,7 +375,7 @@ The backend must be running before starting the dev server. CORS is configured o
 |-----------|------|
 | New idea / feature request | `/backlog` |
 | Informal request → GitHub issue | `pm-issue-writer` agent → `/backlog` |
-| Implementing a GitHub issue | `/ship` or `code-generator` agent |
+| Implementing a GitHub issue | `/deliver` or `code-generator` agent |
 | Bug reported with a stack trace | `bug-fixer` agent |
 | Dependabot PR open | `dependabot-reviewer` agent |
 | PR ready for review | `/fix-review` |

@@ -138,7 +138,7 @@ fix(scope): description ⚡
 ## After Implementing
 - [ ] `npm run lint` passes
 - [ ] Manual smoke test
-- [ ] `/ship` to create PR and merge
+- [ ] `/deliver` to create PR and merge
 - [ ] `docs-maintainer` if SSE/API/architecture changed
 - [ ] Move plan status to `done`, fill `github_issue` if created
 ```
