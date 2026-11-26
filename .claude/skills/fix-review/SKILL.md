@@ -347,7 +347,11 @@ parse_round() {
   fi
   echo "[]"
 }
-R1=$(parse_round 1 "$R1")   # likewise R2/R3 when REVIEWER_COUNT=3
+R1=$(parse_round 1 "$R1")
+if [ "$REVIEWER_COUNT" -eq 3 ]; then
+  R2=$(parse_round 2 "$R2")
+  R3=$(parse_round 3 "$R3")
+fi
 ```
 Don't retry the model and don't repair the JSON with regexes — the arbiter
 reads the raw answer in Step 5. The JSON output contract (raw array,
