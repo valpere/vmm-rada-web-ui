@@ -329,9 +329,30 @@ rm -f "$PROMPT_FILE"
 rm -rf "$RUN_DIR"
 ```
 
-Each call returns a JSON array (empty `[]` on parse failure — safe degradation).
-The JSON output contract (raw array, `file/line/layer/severity/description`)
-is preserved — the project-facts block changes input context, not parse contract.
+Each call returns the model's raw answer (`[]` when the model returned
+nothing). Validate each round before tallying — a prose or broken-JSON answer
+must not silently become "0 findings", or that model's findings are lost:
+```bash
+UNPARSED_DIR=$(mktemp -d)   # kept until Step 6 — the arbiter reads it
+parse_round() {
+  local n="$1" content="$2"
+  if printf '%s' "$content" | jq -e 'type == "array"' >/dev/null 2>&1; then
+    printf '%s' "$content"
+    return
+  fi
+  # Non-empty but not a JSON array: keep it for the arbiter; [] only keeps the tally working.
+  if [ -n "$(printf '%s' "$content" | tr -d '[:space:]')" ]; then
+    printf '%s\n' "$content" > "$UNPARSED_DIR/round_${n}.unparsed.txt"
+    echo "warn: round $n answer is not a valid JSON array — kept in round_${n}.unparsed.txt for the arbiter" >&2
+  fi
+  echo "[]"
+}
+R1=$(parse_round 1 "$R1")   # likewise R2/R3 when REVIEWER_COUNT=3
+```
+Don't retry the model and don't repair the JSON with regexes — the arbiter
+reads the raw answer in Step 5. The JSON output contract (raw array,
+`file/line/layer/severity/description`) is preserved — the project-facts
+block changes input context, not parse contract.
 Record which tier actually produced each round's result (cloud model name,
 external-agent tool name from `$RUN_DIR/round_${n}.failover`, or cli model
 name) — Step 6's PR comment reports this per round, not just the configured
@@ -367,6 +388,10 @@ For each finding (ordered Layer 1 first), apply the Code Review Pyramid:
 | **ESCALATE** | Real issue, more severe than flagged | Fix it, note severity upgrade |
 | **DISMISS** | False positive or conflicts with project patterns | Skip, note reason |
 | **DEFER** | Valid concern, out of scope for this PR | Create a GitHub issue |
+
+**Unparsed rounds:** for each `$UNPARSED_DIR/round_*.unparsed.txt`, read the
+model's answer and carry its findings over by hand as that model's vote (same
+`file:line` grouping as Step 4). Step 6 reports whether it was carried over.
 
 Also run an **independent scan** of the full diff — look for anything the models missed,
 especially violations of the four immutable rules in `context-essentials.md` (a direct
@@ -408,10 +433,17 @@ local model:
 | src/api.js:87 | 1/3 | 5 | sugg | DISMISS | style — not flagged by pyramid |
 
 Models: round_1=<round_1_model>, round_2=<round_2_model>, round_3=<round_3_model> (from config.yaml)
-Arbiter: Claude Sonnet 4.6
+Unparsed: none
+Arbiter: <arbiter model>
 
 </details>
 ```
+
+`Unparsed:` lists the rounds whose answer landed in `$UNPARSED_DIR` (e.g.
+`round_2 (minimax-m3:cloud) — carried over by arbiter`), else `none` — a round
+with an unparsed answer is not a clean "0 findings" round. `<arbiter model>`
+is the model running this session, as named in the current session's
+instructions — never a hardcoded name. After posting, `rm -rf "$UNPARSED_DIR"`.
 
 For a `REVIEWER_COUNT=1` pass (no security-relevant surface touched), the
 `Models:` line lists only round 1, and vote counts read `N/1` instead of
@@ -453,7 +485,7 @@ git checkout main && git pull
 |-------|--------|
 | All findings arbitrated, no blockers | Merge |
 | Cloud endpoint unreachable | Fall back to CLI tier, proceed |
-| Model returns non-JSON | Treat as 0 findings for that model, proceed |
+| Model returns non-JSON | Keep raw answer in `$UNPARSED_DIR`, arbiter carries its findings over, report in `Unparsed:` |
 | Round fails to push | Stop, report error to user |
 | PR already merged | Report and exit |
 | PR has merge conflicts | Stop, ask user to resolve |
