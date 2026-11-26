@@ -4,3 +4,10 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      # @vitest/coverage-v8 pins vitest to its exact version — separate
+      # PRs for each fail npm ci with ERESOLVE (see #162/#163 → #173).
+      vitest:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
